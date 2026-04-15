@@ -3,6 +3,7 @@
 
 #include "Exile.h"
 #include <chrono>
+#include <thread>
 #ifndef BISECT_LO
 #define BISECT_LO 0
 #endif
@@ -213,46 +214,17 @@ public:
 
 			Game.BBC.cpu.pc = GAME_RAM_STARTGAMELOOP;
 #ifdef EXILE_VARIANT_SIDEWAYS_RAM
-			// Vsync trap is in olc6502.cpp (PC=$1F99 force-Carry). Frame 1 completes in ~83k
+			// Vsync trap is in olc6502.cpp (PC=$1F99 force-Carry). Frame 1 completes in ~13k
 			// instructions; frames 2+ currently hang because state after frame 1 isn't coherent
-			// for the next frame (HD patches from PatchExileRAM not yet ported to enhanced
-			// addresses). Cap at 200k to keep the UI responsive while we port patches.
-			int nCycleSafetyCap = 200000;
-			int nCapStart = nCycleSafetyCap;
-			static int nSwFrames = 0;
-			nSwFrames++;
-			// Ring buffer of last 32 PCs for frame 2 diagnosis.
-			static uint16_t ring[32]; static int ringPos = 0;
-			// Capture SP at frame entry for drift detection.
-			uint8_t spAtEntry = Game.BBC.cpu.stkp;
+			// for the next frame. Cap per frame to keep the GLUT event pump responsive.
+			int nCycleSafetyCap = 20000;
 			do {
-				uint16_t prevPc = Game.BBC.cpu.pc;
 				do Game.BBC.cpu.clock();
 				while (!Game.BBC.cpu.complete());
-				if (nSwFrames == 2) { ring[ringPos] = Game.BBC.cpu.pc; ringPos = (ringPos + 1) & 31; }
-				if (Game.BBC.cpu.pc == 0x0000 && sw_lastPcBefore0 == 0) sw_lastPcBefore0 = prevPc;
-				sw_lastPc = Game.BBC.cpu.pc;
 				if (Game.BBC.cpu.pc == GAME_RAM_SCREENFLASH) bScreenFlash = (Game.BBC.cpu.a == 0);
 				if (Game.BBC.cpu.pc == GAME_RAM_EARTHQUAKE) nEarthQuakeOffset = (Game.BBC.cpu.a & 1);
 				if (--nCycleSafetyCap <= 0) break;
 			} while (Game.BBC.cpu.pc != GAME_RAM_STARTGAMELOOP);
-			if (nSwFrames <= 5 || nSwFrames % 60 == 0) {
-				int nInstrs = nCapStart - nCycleSafetyCap;
-				bool bFinished = (Game.BBC.cpu.pc == GAME_RAM_STARTGAMELOOP);
-				std::cout << "[sw " << nSwFrames << "] " << nInstrs << " instr, "
-				          << (bFinished ? "DONE" : "CAPPED")
-				          << "  PC=$" << std::hex << Game.BBC.cpu.pc
-				          << "  SP: $" << (int)spAtEntry << "->$" << (int)Game.BBC.cpu.stkp
-				          << std::dec << std::endl;
-				if (nSwFrames == 2 && !bFinished) {
-					std::cout << "  last 32 PCs: ";
-					for (int i = 0; i < 32; i++) {
-						int idx = (ringPos + i) & 31;
-						std::cout << "$" << std::hex << ring[idx] << " ";
-					}
-					std::cout << std::dec << std::endl;
-				}
-			}
 #else
 			do {
 				do Game.BBC.cpu.clock();
@@ -502,6 +474,10 @@ public:
 			                      (unsigned)Game.BBC.cpu.pc, (unsigned)sw_lastPcBefore0, (unsigned)Game.BBC.activeBank);
 			olc::PixelGameEngine::DrawStringDecal(olc::vd2d(10, SCREEN_HEIGHT - 30), dbg, olc::YELLOW, olc::vf2d(2.0f, 2.0f));
 		}
+		// Yield to macOS WindowServer so the window activates and doesn't dock-bounce.
+		// PGE on macOS GLUT uses glutIdleFunc (no rate-limit, no vsync), so without this
+		// we peg 100% CPU and the window never registers properly on macOS 26.
+		std::this_thread::sleep_for(std::chrono::milliseconds(16));
 #endif
 
 		return true;
