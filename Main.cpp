@@ -138,11 +138,13 @@ public:
 		Game.LoadExileFromBinary("sinit2.rom", 0x6489);   // boot init 2 (data bytes at $6489-$6494 + code at $6495)
 		Game.LoadExileFromBinaryToBank("srom.rom", /*bank=*/0, /*offsetInBank=*/0x99EC - 0x8000);
 
-		// SRAM overlaps the 6502 stack page ($0100-$01FF). Its contents there are initial-data
-		// that the BBC boot code would have copied to a safe location before handing control
-		// to the game. We bypass boot, so zero the stack page — any RTS must then pop addresses
-		// the game itself pushed, not leftover boot data.
-		for (uint16_t a = 0x0100; a <= 0x01FF; a++) Game.BBC.ram[a] = 0x00;
+		// DO NOT zero $0100-$01FF. Although it overlaps the 6502 stack page, sram.rom
+		// loads REAL CODE + DATA here: $01A8 process_actions is called from sound code
+		// in sideways bank 0 ($A6D3), and $01D0 wipe_screen_and_start_game is the end
+		// of SINIT2. Zeroing them replaces working routines with BRK cascades and sends
+		// the CPU walking through zero bytes until it hits SINIT2's decrypt loop.
+		// The stack grows down from $01FF; on real hardware the game keeps its stack
+		// shallow so it never reaches down to the $01A8 code region.
 
 		// Apply all HD patches + IRQ-vector fakes for the enhanced ROM.
 		Game.PatchEnhancedExileRAM();
