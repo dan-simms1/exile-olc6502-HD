@@ -109,7 +109,7 @@ Purpose: Standard ROM uses 1-byte-per-particle interleaved layout `$86xx-$8Dxx` 
 
 | Patch | Addr | Purpose | Enhanced | Status |
 |---|---|---|---|---|
-| `$34C6/$34C7 = $18 $18` (BCS → CLC CLC) | `$34C6` std | bypass sprite-too-tall reject when object held | **NOT at $34C6 in enhanced** (that's angle-check) — find sprite-height check elsewhere (search `CMP #&38`) | ❌ critical — applying to enhanced $34C6 would break angle check |
+| `$34C6/$34C7 = $18 $18` (BCS → CLC CLC) | `$34C6` std | bypass sprite-too-tall reject when object held | **`$352D`** (same `LDA $BE89,X / CMP #&38 / BCS` pattern) | ✅ ported (Main.cpp sideways block writes `$18 $18` at `$352D`) |
 
 ---
 

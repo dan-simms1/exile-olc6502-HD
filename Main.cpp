@@ -150,6 +150,15 @@ public:
 		// Turn off BBC's native sprite/background plotter so PGE draws instead.
 		Game.BBC.ram[0x0CA5] = 0x4C; Game.BBC.ram[0x0CA6] = 0xC0; Game.BBC.ram[0x0CA7] = 0x0C;
 		Game.BBC.ram[0x10D2] = 0x4C; Game.BBC.ram[0x10D3] = 0xED; Game.BBC.ram[0x10D4] = 0x10;
+
+		// HD sprite-too-tall fix — enhanced equivalent of standard's $34C6 patch.
+		// Standard $34C6 BCS $352D ; leave — HD overrides with CLC CLC so tall sprites
+		// can still be stored. Enhanced equivalent is at $352D (same LDA $BE89,X /
+		// CMP #&38 / BCS $3594 pattern), so put the CLC CLC there.
+		Game.BBC.ram[0x352D] = 0x18; Game.BBC.ram[0x352E] = 0x18;
+
+		// HD LDY tweak at $0C5A — same address in both ROMs (bytes a0 04 → a0 0a).
+		Game.BBC.ram[0x0C5B] = 0x0A;
 #else
 		// BBC Micro standard layout: BMAIN $0100-$60FF (post-relocation), BINTRO at $7200.
 		Game.LoadExileFromBinary("bmain.rom",  0x0100);
@@ -224,25 +233,39 @@ public:
 			// addresses). Cap at 200k to keep the UI responsive while we port patches.
 			int nCycleSafetyCap = 200000;
 			int nCapStart = nCycleSafetyCap;
+			static int nSwFrames = 0;
+			nSwFrames++;
+			// Ring buffer of last 32 PCs for frame 2 diagnosis.
+			static uint16_t ring[32]; static int ringPos = 0;
+			// Capture SP at frame entry for drift detection.
+			uint8_t spAtEntry = Game.BBC.cpu.stkp;
 			do {
 				uint16_t prevPc = Game.BBC.cpu.pc;
 				do Game.BBC.cpu.clock();
 				while (!Game.BBC.cpu.complete());
+				if (nSwFrames == 2) { ring[ringPos] = Game.BBC.cpu.pc; ringPos = (ringPos + 1) & 31; }
 				if (Game.BBC.cpu.pc == 0x0000 && sw_lastPcBefore0 == 0) sw_lastPcBefore0 = prevPc;
 				sw_lastPc = Game.BBC.cpu.pc;
 				if (Game.BBC.cpu.pc == GAME_RAM_SCREENFLASH) bScreenFlash = (Game.BBC.cpu.a == 0);
 				if (Game.BBC.cpu.pc == GAME_RAM_EARTHQUAKE) nEarthQuakeOffset = (Game.BBC.cpu.a & 1);
 				if (--nCycleSafetyCap <= 0) break;
 			} while (Game.BBC.cpu.pc != GAME_RAM_STARTGAMELOOP);
-			// Per-frame report every N frames for perf diagnosis.
-			static int nSwFrames = 0;
-			if (++nSwFrames <= 5 || nSwFrames % 60 == 0) {
+			if (nSwFrames <= 5 || nSwFrames % 60 == 0) {
 				int nInstrs = nCapStart - nCycleSafetyCap;
 				bool bFinished = (Game.BBC.cpu.pc == GAME_RAM_STARTGAMELOOP);
 				std::cout << "[sw " << nSwFrames << "] " << nInstrs << " instr, "
 				          << (bFinished ? "DONE" : "CAPPED")
-				          << "  PC=$" << std::hex << Game.BBC.cpu.pc << std::dec
-				          << std::endl;
+				          << "  PC=$" << std::hex << Game.BBC.cpu.pc
+				          << "  SP: $" << (int)spAtEntry << "->$" << (int)Game.BBC.cpu.stkp
+				          << std::dec << std::endl;
+				if (nSwFrames == 2 && !bFinished) {
+					std::cout << "  last 32 PCs: ";
+					for (int i = 0; i < 32; i++) {
+						int idx = (ringPos + i) & 31;
+						std::cout << "$" << std::hex << ring[idx] << " ";
+					}
+					std::cout << std::dec << std::endl;
+				}
 			}
 #else
 			do {
