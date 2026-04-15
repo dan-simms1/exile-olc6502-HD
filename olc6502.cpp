@@ -166,6 +166,14 @@ void olc6502::SetFlag(FLAGS6502 f, bool v)
 
 uint16_t olc6502::ReloactedStackAddress(uint16_t AddressToTest)
 {
+#ifdef EXILE_VARIANT_SIDEWAYS_RAM
+	// Enhanced build keeps object stacks at their ORIGINAL $0860-$0976 location.
+	// PatchExileRAM's 16→128-slot relocation (and this runtime redirect) only
+	// applies to the standard HD build. Without this guard, every enhanced
+	// LDA/STA &08xx would be silently redirected to $96xx — which is unpopulated
+	// for sideways, giving the game all-zero object state and making it misbehave.
+	return AddressToTest;
+#else
 	switch(AddressToTest) {
 	case 0x0860: return 0x9600; // object_stack_type
 	case 0x0870: return 0x9700; // object_stack_sprite
@@ -189,6 +197,7 @@ uint16_t olc6502::ReloactedStackAddress(uint16_t AddressToTest)
 	// Starting at 0xa800 // object_stack_target_object
 	}
 	return AddressToTest;
+#endif
 }
 
 // Addressing modes
