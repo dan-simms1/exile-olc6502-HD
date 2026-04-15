@@ -119,9 +119,19 @@ void olc6502::clock()
 		SetFlag(U, true); // Needed?
 		pc++;
 
-		if (pc == 0x1F66) {  // Temporary to fix VDU trap
+		// VDU / wait_for_vsync trap: force BCC not-taken at the vsync poll loop so
+		// the game doesn't spin waiting for a VSYNC IRQ we never deliver.
+		//   Standard  ROM wait_for_vsync: $1F60 LDA $11E4 / $1F63 CMP #2 / $1F65 BCC → break at $1F66
+		//   Enhanced  ROM wait_for_vsync: $1F93 LDA $11DC / $1F96 CMP #2 / $1F98 BCC → break at $1F99
+#ifdef EXILE_VARIANT_SIDEWAYS_RAM
+		if (pc == 0x1F99) {
 			SetFlag(C, 1);
 		}
+#else
+		if (pc == 0x1F66) {
+			SetFlag(C, 1);
+		}
+#endif
 
 		// Get starting number of cycles
 		cycles = lookup[opcode].cycles;
