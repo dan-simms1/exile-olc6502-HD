@@ -436,8 +436,15 @@ void Exile::PatchEnhancedExileRAM() {
 	BBC.ram[0x0CA5] = 0x4C; BBC.ram[0x0CA6] = 0xC0; BBC.ram[0x0CA7] = 0x0C;
 	//   $10D2 → JMP $10ED : skip BBC background tile plotter.
 	BBC.ram[0x10D2] = 0x4C; BBC.ram[0x10D3] = 0xED; BBC.ram[0x10D4] = 0x10;
-	//   $0C5B = $0A : HD tweak, LDY #$04 → LDY #$0A. Same address both ROMs.
-	BBC.ram[0x0C5B] = 0x0A;
+	//   $0C5B = $0C : HD tweak, LDY #$04 → LDY #$0C for enhanced.
+	//   Standard uses LDY #$0A + two INC $9B at $111F/$1121 for effective radius 12.
+	//   Enhanced's code deliberately omits those INCs (per disassembly comment at
+	//   $111F: "Standard version increases distance by two when checking y") and
+	//   inserting them would require shifting 4 bytes of downstream code. Easier
+	//   to bake the +2 into the immediate operand here, giving the same effective
+	//   12-tile promotion radius. Door at (99,4C) with player at (8F,4E) is 10
+	//   tiles = on boundary; 12 covers it like standard does.
+	BBC.ram[0x0C5B] = 0x0C;
 
 	// ENHANCED-SPECIFIC patches — different address from standard but same purpose:
 	//   Sprite-too-tall BCS → CLC CLC. Std uses $34C6; enhanced's equivalent
