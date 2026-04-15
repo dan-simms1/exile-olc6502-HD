@@ -444,6 +444,29 @@ void Exile::PatchEnhancedExileRAM() {
 	//   (LDA $BE89,X / CMP #$38 / BCS $3594) sits at $352D.
 	BBC.ram[0x352D] = 0x18; BBC.ram[0x352E] = 0x18;
 
+	// NOP out the copy-protection JSR at $6540 in SINIT2 so we can run the
+	// rest of SINIT2 (game-state decrypt + VIA setup + JMP $01D0 wipe_screen_and_start_game)
+	// without getting stuck waiting for the player to type a word from the novella.
+	//   Original: 20 BE 66    JSR $66BE ; copy_protection_screen
+	//   Patched:  EA EA EA    NOP NOP NOP
+	BBC.ram[0x6540] = 0xEA;
+	BBC.ram[0x6541] = 0xEA;
+	BBC.ram[0x6542] = 0xEA;
+
+	// Also NOP the second copy-protection check at $2740 JSR $39B5 (called when
+	// summoning Triax) so mid-game doesn't hang either.
+	BBC.ram[0x2740] = 0xEA;
+	BBC.ram[0x2741] = 0xEA;
+	BBC.ram[0x2742] = 0xEA;
+
+	// Note: we tried running SINIT2 from $6495, but it gets stuck at its
+	// decrypt-verification loop at $64FF-$6504 (infinite_loop_if_fallback_
+	// teleport_not_as_expected). The decrypt at $64CD uses BCD (SED+ADC) with
+	// non-BCD operands ($6E as a key byte); real-6502 behaviour on non-BCD
+	// operands is hardware-specific and emulators disagree. Since standard
+	// doesn't run this (bmain.rom is pre-decrypted at build time), and
+	// we don't need the decrypt for display, skip SINIT2 entirely.
+
 	// TODO — port these HD patches to enhanced once their addresses are located:
 	//   [ ] Radius bump: std has INC $9B at $111F/$1121. Enhanced has zero
 	//       occurrences of that opcode — need to find where enhanced manages

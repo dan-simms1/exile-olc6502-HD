@@ -375,26 +375,45 @@ uint8_t olc6502::ADC()
 {
 	fetch();
 	uint16_t temp = (uint16_t)a + (uint16_t)fetched + (uint16_t)GetFlag(C);
-	SetFlag(C, temp > 255);
+	// Binary N/V/Z flags (original 6502 sets these from the binary result even in decimal mode)
 	SetFlag(Z, (temp & 0x00FF) == 0);
 	SetFlag(V, (~((uint16_t)a ^ (uint16_t)fetched) & ((uint16_t)a ^ (uint16_t)temp)) & 0x0080);
 	SetFlag(N, temp & 0x80);
-	a = temp & 0x00FF;
+	if (GetFlag(D)) {
+		// BCD addition: adjust per nibble.
+		uint16_t lo = (a & 0x0F) + (fetched & 0x0F) + GetFlag(C);
+		if (lo > 9) lo += 6;
+		uint16_t hi = (a & 0xF0) + (fetched & 0xF0) + (lo & 0xF0);
+		if (hi > 0x90) hi += 0x60;
+		SetFlag(C, hi > 0xFF);
+		a = (uint8_t)((hi & 0xF0) | (lo & 0x0F));
+	} else {
+		SetFlag(C, temp > 255);
+		a = temp & 0x00FF;
+	}
 	return 1;
 }
 
 uint8_t olc6502::SBC()
 {
 	fetch();
-
 	uint16_t value = ((uint16_t)fetched) ^ 0x00FF;
-
 	uint16_t temp = (uint16_t)a + value + (uint16_t)GetFlag(C);
-	SetFlag(C, temp & 0xFF00);
 	SetFlag(Z, (temp & 0x00FF) == 0);
 	SetFlag(V, (temp ^ (uint16_t)a) & (temp ^ value) & 0x0080);
 	SetFlag(N, temp & 0x0080);
-	a = temp & 0x00FF;
+	if (GetFlag(D)) {
+		// BCD subtraction: A - fetched - (1-C).
+		int16_t lo = (int16_t)(a & 0x0F) - (int16_t)(fetched & 0x0F) - (int16_t)(1 - GetFlag(C));
+		int16_t hi = (int16_t)(a >> 4) - (int16_t)(fetched >> 4);
+		if (lo < 0) { lo += 10; hi--; }
+		if (hi < 0) hi += 10;
+		SetFlag(C, temp & 0xFF00);   // carry still from the binary result
+		a = (uint8_t)(((hi & 0x0F) << 4) | (lo & 0x0F));
+	} else {
+		SetFlag(C, temp & 0xFF00);
+		a = temp & 0x00FF;
+	}
 	return 1;
 }
 
