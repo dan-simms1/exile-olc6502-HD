@@ -622,22 +622,74 @@ void Exile::PatchEnhancedExileRAM() {
 		BBC.write(site + 2, (uint8_t)(newOp >> 8));
 	}
 
-	// --- Object-iteration loop bounds stay at 16 ---
-	// LOOP-BOUND BUMPS DISABLED: bumping to 128 needs all 9 of standard's trampoline
-	// patches ported too ($1A62→$FF10, $1A8F→$FF00, $1DBE→$FF20, $1E3C→$FE00,
-	// $1EDF→$FE10, $27B7→$FE20, $4BFB→$FE30, $3CED→$FF40 + in-place EOR at $1E34).
-	// Those restructure the target/target_object storage so 128 slots can be
-	// addressed (original 5-bit mask only supports 32 objects). Without porting
-	// them, bumping loop bounds alone causes slot-aliasing bugs like "2 Finns".
-	// Leaving bounds at 16 means game iterates its original 16 slots only, which
-	// WORKS CORRECTLY with just byte-level relocation + runtime safety net.
-	// BBC.ram[0x1E45] = 0x80;   // DISABLED
-	// BBC.ram[0x1E5D] = 0x7F;   // DISABLED
-	// BBC.ram[0x1EA4] = 0x7F;   // DISABLED
-	// BBC.ram[0x1EEC] = 0x80;   // DISABLED
-	// BBC.ram[0x34AA] = 0x7F;   // DISABLED
-	// BBC.ram[0x3CB9] = 0x7F;   // DISABLED
-	// BBC.ram[0x6528] = 0x7F;   // DISABLED
+	// ==========================================================================
+	// TRAMPOLINE PORTS: enhanced equivalents of std's 21 code patches
+	// ==========================================================================
+	// Standard HD splits the original $0906 combined byte (target flags + target
+	// object index, 3+5 bits) into two separate stacks: $A000 target (flags) and
+	// $A800 target_object (8-bit index). This lets 128 objects be individually
+	// targetable. Enhanced equivalent: $CA00 target (already relocated from our
+	// 192 byte-rewrites) + NEW $D200 target_object (128 bytes).
+	//
+	// Init $D200 with enhanced-appropriate defaults (standard uses "10 00 10 10
+	// 11 11..." for first 16 slots — same pattern here for matching behaviour).
+	{
+		static const uint8_t kTargetObjInit[16] = {
+			0x10,0x00,0x10,0x10, 0x11,0x11,0x11,0x11,
+			0x10,0x10,0x11,0x10, 0x11,0x10,0x11,0x02
+		};
+		for (int i = 0; i < 16; i++) BBC.ram[0xD200 + i] = kTargetObjInit[i];
+		// Slots 16-127 of target_object stay 0 (empty).
+	}
+
+	// --- Trampoline 1: $1A86 (enh equiv of std $1A62) — load target/target_object ---
+	// Original 11 bytes at $1A86-$1A90:
+	//   $1A86 LDA $0906,X    (would now be $CA00,X after rewrite)
+	//   $1A89 STA $3E
+	//   $1A8B STA $3F
+	//   $1A8D AND #$1F
+	//   $1A8F STA $0E
+	// HD pattern: replace with JMP to trampoline that loads from BOTH split stacks.
+	BBC.ram[0x1A86] = 0x4C; BBC.ram[0x1A87] = 0x00; BBC.ram[0x1A88] = 0xFD;  // JMP $FD00
+	for (int i = 0; i < 8; i++) BBC.ram[0x1A89 + i] = 0xEA;                  // pad with NOPs
+	// Trampoline at $FD00:
+	BBC.ram[0xFD00] = 0xBD; BBC.ram[0xFD01] = 0x00; BBC.ram[0xFD02] = 0xCA;  // LDA $CA00,X (target, relocated)
+	BBC.ram[0xFD03] = 0x85; BBC.ram[0xFD04] = 0x3E;                          // STA $3E
+	BBC.ram[0xFD05] = 0x85; BBC.ram[0xFD06] = 0x3F;                          // STA $3F
+	BBC.ram[0xFD07] = 0xBD; BBC.ram[0xFD08] = 0x00; BBC.ram[0xFD09] = 0xD2;  // LDA $D200,X (target_object NEW)
+	BBC.ram[0xFD0A] = 0x85; BBC.ram[0xFD0B] = 0x0E;                          // STA $0E
+	BBC.ram[0xFD0C] = 0x4C; BBC.ram[0xFD0D] = 0x91; BBC.ram[0xFD0E] = 0x1A;  // JMP $1A91 (back to after original)
+
+	// --- Trampoline 2: $1DE2 (enh equiv of std $1DBE) — store target/target_object ---
+	// Original 9 bytes at $1DE2-$1DEA:
+	//   $1DE2 LDA $3E
+	//   $1DE4 AND #$E0
+	//   $1DE6 ORA $0E
+	//   $1DE8 STA $0906,X     (would now be $CA00,X)
+	// HD pattern: store A (combined) AND separately store target_object.
+	BBC.ram[0x1DE2] = 0x4C; BBC.ram[0x1DE3] = 0x20; BBC.ram[0x1DE4] = 0xFD;  // JMP $FD20
+	for (int i = 0; i < 6; i++) BBC.ram[0x1DE5 + i] = 0xEA;
+	// Trampoline at $FD20:
+	BBC.ram[0xFD20] = 0xA5; BBC.ram[0xFD21] = 0x3E;                          // LDA $3E (target with flags)
+	BBC.ram[0xFD22] = 0x9D; BBC.ram[0xFD23] = 0x00; BBC.ram[0xFD24] = 0xCA;  // STA $CA00,X (target)
+	BBC.ram[0xFD25] = 0xA5; BBC.ram[0xFD26] = 0x0E;                          // LDA $0E (target_object)
+	BBC.ram[0xFD27] = 0x9D; BBC.ram[0xFD28] = 0x00; BBC.ram[0xFD29] = 0xD2;  // STA $D200,X (target_object NEW)
+	BBC.ram[0xFD2A] = 0x4C; BBC.ram[0xFD2B] = 0xEB; BBC.ram[0xFD2C] = 0x1D;  // JMP $1DEB
+
+	// --- In-place EOR fix at $1E67 (enh equiv of std $1E34) ---
+	// Standard HD rewrites EOR $0906,X to EOR $A800,X (from target to target_object).
+	// My earlier 192-site blanket rewrite made it EOR $CA00,X (target) — WRONG.
+	// Correct: EOR $D200,X (target_object).
+	BBC.ram[0x1E68] = 0x00; BBC.ram[0x1E69] = 0xD2;   // $1E67 EOR $D200,X
+
+	// --- Now re-enable loop-bound bumps from 16 → 128 ---
+	BBC.ram[0x1E45] = 0x80;   // CPX #$10 → #$80  (update_objects exit)
+	BBC.ram[0x1E5D] = 0x7F;   // LDX #$0F → #$7F  (remove_object_for_touching)
+	BBC.ram[0x1EA4] = 0x7F;   // LDY #$0F → #$7F  (find_most_distant_object)
+	BBC.ram[0x1EEC] = 0x80;   // CPY #$10 → #$80  (create_new_object bound)
+	BBC.ram[0x34AA] = 0x7F;   // LDX #$0F → #$7F  (accelerate_all_objects)
+	BBC.ram[0x3CB9] = 0x7F;   // LDY #$0F → #$7F  (find_or_count_objects)
+	BBC.ram[0x6528] = 0x7F;   // LDY #$0F → #$7F  (mark_objects_as_not_plotted)
 }
 
 void Exile::GenerateBackgroundGrid() {
