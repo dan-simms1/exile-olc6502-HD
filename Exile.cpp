@@ -811,11 +811,18 @@ void Exile::DetermineBackground(uint8_t x, uint8_t y, uint16_t nFrameCounter) {
 	//if ((x == 0x64) && (y == 0xc6)) return; //Tree
 
 	if (TileGrid[x][y].FrameLastDrawn != (nFrameCounter - 1)) {
-		// Save CPU state:  
-		uint8_t a_ = BBC.cpu.a; uint8_t x_ = BBC.cpu.x; uint8_t y_ = BBC.cpu.x;
+		// Save CPU state (NB: original code had a typo — y_ was set from BBC.cpu.x)
+		uint8_t a_ = BBC.cpu.a; uint8_t x_ = BBC.cpu.x; uint8_t y_ = BBC.cpu.y;
 		uint16_t stkp_ = BBC.cpu.stkp; uint16_t pc_ = BBC.cpu.pc;
 
-		// Set CPU state:  
+		// Save zero-page: classify uses ZP as scratch — without the restore below,
+		// every DetermineBackground call corrupts the game's live ZP state. This isn't
+		// about TileGrid (we don't re-populate tiles here) — it's side-effect spawning,
+		// so the game's own ZP must be unperturbed afterwards.
+		uint8_t zp[256];
+		for (int i = 0; i < 256; i++) zp[i] = BBC.ram[i];
+
+		// Set CPU state:
 		BBC.cpu.a = 0x00; BBC.cpu.x = 0x00; BBC.cpu.y = 0x00;
 		BBC.cpu.stkp = 0xff;  BBC.cpu.pc = 0xffa0;
 
@@ -829,7 +836,8 @@ void Exile::DetermineBackground(uint8_t x, uint8_t y, uint16_t nFrameCounter) {
 			while (!BBC.cpu.complete());
 		} while (BBC.cpu.pc != 0xffa3);
 
-		// Restore CPU state:  
+		// Restore ZP & CPU state:
+		for (int i = 0; i < 256; i++) BBC.ram[i] = zp[i];
 		BBC.cpu.a = a_; BBC.cpu.x = x_; BBC.cpu.y = y_;
 		BBC.cpu.stkp = stkp_;  BBC.cpu.pc = pc_;
 	}
