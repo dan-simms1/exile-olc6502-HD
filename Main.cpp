@@ -218,12 +218,11 @@ public:
 
 			Game.BBC.cpu.pc = GAME_RAM_STARTGAMELOOP;
 #ifdef EXILE_VARIANT_SIDEWAYS_RAM
-			// No VSYNC fake: letting the game pass wait_for_vsync ($1F93) sends execution
-			// into OS ROM addresses ($Fxxx) which we don't emulate — renders degrade to a
-			// two-tone blue/black frame. Without the fake the game freezes at $1F93 but
-			// stale memory still shows the ship/cave/particles.
-			// Safety-cap protects the UI when the game loop never reaches $19DA.
-			int nCycleSafetyCap = 5000000;   // 5M — covers a full enhanced frame if it ever completes
+			// Vsync trap is in olc6502.cpp (PC=$1F99 force-Carry). Frame 1 completes in ~83k
+			// instructions; frames 2+ currently hang because state after frame 1 isn't coherent
+			// for the next frame (HD patches from PatchExileRAM not yet ported to enhanced
+			// addresses). Cap at 200k to keep the UI responsive while we port patches.
+			int nCycleSafetyCap = 200000;
 			int nCapStart = nCycleSafetyCap;
 			do {
 				uint16_t prevPc = Game.BBC.cpu.pc;
@@ -235,15 +234,14 @@ public:
 				if (Game.BBC.cpu.pc == GAME_RAM_EARTHQUAKE) nEarthQuakeOffset = (Game.BBC.cpu.a & 1);
 				if (--nCycleSafetyCap <= 0) break;
 			} while (Game.BBC.cpu.pc != GAME_RAM_STARTGAMELOOP);
-			// One-shot report of whether the frame completed within cap.
-			static bool bLoggedCompletion = false;
-			if (!bLoggedCompletion) {
-				bLoggedCompletion = true;
+			// Per-frame report every N frames for perf diagnosis.
+			static int nSwFrames = 0;
+			if (++nSwFrames <= 5 || nSwFrames % 60 == 0) {
 				int nInstrs = nCapStart - nCycleSafetyCap;
 				bool bFinished = (Game.BBC.cpu.pc == GAME_RAM_STARTGAMELOOP);
-				std::cout << "first sideways frame: " << nInstrs << " instructions, "
-				          << (bFinished ? "REACHED $19DA naturally" : "HIT CAP (frame incomplete)")
-				          << "  final PC=$" << std::hex << Game.BBC.cpu.pc << std::dec
+				std::cout << "[sw " << nSwFrames << "] " << nInstrs << " instr, "
+				          << (bFinished ? "DONE" : "CAPPED")
+				          << "  PC=$" << std::hex << Game.BBC.cpu.pc << std::dec
 				          << std::endl;
 			}
 #else
