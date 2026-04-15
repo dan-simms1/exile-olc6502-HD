@@ -574,8 +574,8 @@ void Exile::DrawExileSprite_PixelByPixel(olc::PixelGameEngine* PGE,
 
 	//Extract palette:
 	olc::Pixel Palette[4];
-	uint8_t nPixelTableA = BBC.ram[0x1e48 + (nPaletteID >> 4)]; // pixel_table
-	uint8_t nPixelTableB = BBC.ram[0x0b79 + (nPaletteID & 0x0f)]; // palette_value_to_pixel_lookup
+	uint8_t nPixelTableA = BBC.ram[PALETTE_PIXEL_TABLE  + (nPaletteID >> 4)];
+	uint8_t nPixelTableB = BBC.ram[PALETTE_VALUE_LOOKUP + (nPaletteID & 0x0f)];
 	for (int nCol = 0; nCol < 4; nCol++) {
 		uint8_t byte = 0;
 		switch (nCol) {

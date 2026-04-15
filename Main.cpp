@@ -133,9 +133,11 @@ public:
 		Game.BBC.bSidewaysPaging = true;
 		Game.BBC.activeBank = 7;           // jsbeeb snapshot had bank 7 paged in
 		Game.LoadExileFromBinary("snapshot_main.rom", 0x0000);
-		// Not loading SROM into bank 7 — when we did, something in the game's paging logic
-		// ended up reading corrupt bytes from there and broke rendering. Bank 7 stays FF-
-		// filled (matches the jsbeeb snapshot's bank content).
+		// Load SROM into sideways bank 7 — it contains the enhanced sprite bitmap (at
+		// CPU $B3EC when bank 7 is paged in) and the sprite width/height/offset lookup
+		// tables that the HD renderer needs. GenerateSpriteSheet() reads these via
+		// BBC.read() which goes through the Bus, so it'll see the paged-in bank bytes.
+		Game.LoadExileFromBinaryToBank("srom.rom", /*bank=*/7, /*offsetInBank=*/0x99EC - 0x8000);
 
 		// The jsbeeb snapshot stores 0 at $FFFE/$FFFF because the MOS ROM lives outside the
 		// 128 KB dump. Plant an RTI at $FFF0 and point IRQ/NMI vectors there so any stray
