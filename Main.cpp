@@ -124,24 +124,25 @@ public:
 		// Load Exile RAM from authoritative ROM (built from Tom Seddon's BeebAsm disassembly).
 		// Choose at compile time between BBC Micro standard and sideways-RAM (BBC Master) variants.
 #ifdef EXILE_VARIANT_SIDEWAYS_RAM
-		// Sideways-RAM (BBC Master) variant: load a 64 KB post-boot RAM snapshot captured from
-		// a real BBC Master emulator (jsbeeb) after the enhanced game has started. This skips
-		// SINIT/SINIT2/SROM migration entirely — the captured state already has everything
-		// in its final location. Empirically, all enhanced-game code and data ends up in
-		// main RAM $0100-$7FFF; sideways RAM banks are empty post-boot on Master (only used
-		// as scratch space for sound samples during playback).
+		// Sideways-RAM (BBC Master) variant: load clean BeebAsm-built binaries.
+		//   SRAM is assembled to run at $0100 (the .lea load=$1200 is the BBC's pre-relocation address).
+		//   SROM is sideways-ROM content; on real hardware it pages into $8000-$BFFF. Enable the
+		//   Bus's paged-ROM emulation (ROMSEL $FE30) and load SROM into sideways bank 0, at the
+		//   offset the game expects ($99EC → $8000 + $19EC within the bank).
+		//   SINIT/SINIT2 are boot routines; we pre-place memory directly so they aren't executed.
 		Game.BBC.bSidewaysPaging = true;
-		Game.BBC.activeBank = 7;           // jsbeeb snapshot had bank 7 paged in
-		Game.LoadExileFromBinary("snapshot_main.rom", 0x0000);
-		// Load SROM into sideways bank 7 — it contains the enhanced sprite bitmap (at
-		// CPU $B3EC when bank 7 is paged in) and the sprite width/height/offset lookup
-		// tables that the HD renderer needs. GenerateSpriteSheet() reads these via
-		// BBC.read() which goes through the Bus, so it'll see the paged-in bank bytes.
-		Game.LoadExileFromBinaryToBank("srom.rom", /*bank=*/7, /*offsetInBank=*/0x99EC - 0x8000);
+		Game.BBC.activeBank = 0;
+		Game.LoadExileFromBinary("sram.rom", 0x0100);
+		Game.LoadExileFromBinaryToBank("srom.rom", /*bank=*/0, /*offsetInBank=*/0x99EC - 0x8000);
 
-		// The jsbeeb snapshot stores 0 at $FFFE/$FFFF because the MOS ROM lives outside the
-		// 128 KB dump. Plant an RTI at $FFF0 and point IRQ/NMI vectors there so any stray
-		// BRK just returns cleanly (matches the original working revision).
+		// SRAM overlaps the 6502 stack page ($0100-$01FF). Its contents there are initial-data
+		// that the BBC boot code would have copied to a safe location before handing control
+		// to the game. We bypass boot, so zero the stack page — any RTS must then pop addresses
+		// the game itself pushed, not leftover boot data.
+		for (uint16_t a = 0x0100; a <= 0x01FF; a++) Game.BBC.ram[a] = 0x00;
+
+		// Empty OS-ROM region: plant an RTI at $FFF0 and aim all vectors at it so stray BRKs
+		// return cleanly rather than spiralling through zero-filled ROM.
 		Game.BBC.ram[0xFFF0] = 0x40; // RTI
 		Game.BBC.ram[0xFFFA] = 0xF0; Game.BBC.ram[0xFFFB] = 0xFF;   // NMI
 		Game.BBC.ram[0xFFFC] = 0xF0; Game.BBC.ram[0xFFFD] = 0xFF;   // RESET
@@ -152,9 +153,8 @@ public:
 		Game.BBC.ram[0x10D2] = 0x4C; Game.BBC.ram[0x10D3] = 0xED; Game.BBC.ram[0x10D4] = 0x10;
 
 		// HD sprite-too-tall fix — enhanced equivalent of standard's $34C6 patch.
-		// Standard $34C6 BCS $352D ; leave — HD overrides with CLC CLC so tall sprites
-		// can still be stored. Enhanced equivalent is at $352D (same LDA $BE89,X /
-		// CMP #&38 / BCS $3594 pattern), so put the CLC CLC there.
+		// Enhanced $352D has the same LDA $BE89,X / CMP #&38 / BCS pattern; CLC CLC lets
+		// tall sprites be stored.
 		Game.BBC.ram[0x352D] = 0x18; Game.BBC.ram[0x352E] = 0x18;
 
 		// HD LDY tweak at $0C5A — same address in both ROMs (bytes a0 04 → a0 0a).
