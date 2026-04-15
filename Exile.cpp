@@ -470,6 +470,13 @@ void Exile::GenerateBackgroundGrid() {
 		}
 		if ((y & 0x0f) == 0) { std::cout << "grid y=0x" << std::hex << y << std::dec << std::endl; std::cout.flush(); }
 	}
+	// Dump tile-ID histogram so we can see whether classify produced sensible output.
+	int hist[256] = {0};
+	for (int yy = 0; yy < 256; yy++) for (int xx = 0; xx < 256; xx++) hist[TileGrid[xx][yy].TileID]++;
+	std::cout << "TileID histogram (id:count, only nonzero):" << std::endl;
+	for (int i = 0; i < 256; i++) if (hist[i] > 0)
+		std::cout << "  $" << std::hex << i << std::dec << " : " << hist[i] << std::endl;
+	std::cout.flush();
 }
 
 void Exile::RestoreOldBytesInRange(uint16_t lo, uint16_t hi) {
@@ -683,14 +690,14 @@ Obj Exile::Object(uint8_t nObjectID)
 {
 	Obj O;
 
-	O.ObjectType = BBC.ram[0x9600 + nObjectID]; // object_stack_type
-	O.SpriteID = BBC.ram[0x9700 + nObjectID]; // object_stack_sprite
-	O.GameX = (BBC.ram[0x9800 + nObjectID] | (BBC.ram[0x9900 + nObjectID] << 8)) / 8; // (object_stack_x_low | object_stack_x << 8) / 8
-	O.GameY = (BBC.ram[0x9a00 + nObjectID] | (BBC.ram[0x9b00 + nObjectID] << 8)) / 8; // (object_stack_y_low | object_stack_y << 8) / 8
-	O.Palette = BBC.ram[0x9d00 + nObjectID]; // object_stack_palette
-	O.Timer = BBC.ram[0xa500 + nObjectID]; // object_stack_timer
+	O.ObjectType = BBC.ram[OS_TYPE + nObjectID];
+	O.SpriteID   = BBC.ram[OS_SPRITE + nObjectID];
+	O.GameX = (BBC.ram[OS_X_LOW + nObjectID] | (BBC.ram[OS_X + nObjectID] << 8)) / 8;
+	O.GameY = (BBC.ram[OS_Y_LOW + nObjectID] | (BBC.ram[OS_Y + nObjectID] << 8)) / 8;
+	O.Palette = BBC.ram[OS_PALETTE + nObjectID];
+	O.Timer   = BBC.ram[OS_TIMER + nObjectID];
 
-	uint8_t nObjFlags = BBC.ram[0x9c00 + nObjectID]; // object_stack_flags
+	uint8_t nObjFlags = BBC.ram[OS_FLAGS + nObjectID];
 	O.Teleporting = (nObjFlags >> 4) & 1; // Bit 4: Teleporting
 	O.HorizontalFlip = (nObjFlags >> 7) & 1; // Bit 7: Horizontal invert
 	O.VerticalFlip = (nObjFlags >> 6) & 1; // Bit 6: Vertical invert
@@ -701,9 +708,10 @@ Obj Exile::Object(uint8_t nObjectID)
 ExileParticle Exile::Particle(uint8_t nparticleID) {
 	ExileParticle P;
 
-	P.GameX = (BBC.ram[0x8800 + nparticleID] | (BBC.ram[0x8a00 + nparticleID] << 8)) / 8; // (particle_stack_x_low | particle_stack_x << 8) / 8
-	P.GameY = (BBC.ram[0x8900 + nparticleID] | (BBC.ram[0x8b00 + nparticleID] << 8)) / 8; // (particle_stack_y_low | particle_stack_y << 8) / 8
-	P.ParticleType = BBC.ram[0x8d00 + nparticleID]; // particle_stack_type
+	const uint16_t off = nparticleID * PS_STRIDE;
+	P.GameX = (BBC.ram[PS_X_LOW + off] | (BBC.ram[PS_X + off] << 8)) / 8;
+	P.GameY = (BBC.ram[PS_Y_LOW + off] | (BBC.ram[PS_Y + off] << 8)) / 8;
+	P.ParticleType = BBC.ram[PS_TYPE + off];
 
 	return P;
 }

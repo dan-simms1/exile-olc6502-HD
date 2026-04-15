@@ -200,11 +200,10 @@ public:
 
 			// For debugging - CTRL + CURSOR MOVES PLAYER THROUGH WALLS:
 			if (GetKey(olc::CTRL).bHeld) {
-				if (GetKey(olc::LEFT).bPressed || GetKey(olc::LEFT).bHeld) Game.BBC.ram[0x9900] = Game.BBC.ram[0x9900] - 1;
-				if (GetKey(olc::RIGHT).bPressed || GetKey(olc::RIGHT).bHeld) Game.BBC.ram[0x9900] = Game.BBC.ram[0x9900] + 1;
-
-				if (GetKey(olc::UP).bPressed || GetKey(olc::UP).bHeld) Game.BBC.ram[0x9b00] = Game.BBC.ram[0x9b00] - 1;
-				if (GetKey(olc::DOWN).bPressed || GetKey(olc::DOWN).bHeld) Game.BBC.ram[0x9b00] = Game.BBC.ram[0x9b00] + 1;
+				if (GetKey(olc::LEFT).bPressed || GetKey(olc::LEFT).bHeld)   Game.BBC.ram[OS_X]--;
+				if (GetKey(olc::RIGHT).bPressed || GetKey(olc::RIGHT).bHeld) Game.BBC.ram[OS_X]++;
+				if (GetKey(olc::UP).bPressed || GetKey(olc::UP).bHeld)       Game.BBC.ram[OS_Y]--;
+				if (GetKey(olc::DOWN).bPressed || GetKey(olc::DOWN).bHeld)   Game.BBC.ram[OS_Y]++;
 			}
 
 			// O------------------------------------------------------------------------------O
@@ -319,7 +318,7 @@ public:
 		// O------------------------------------------------------------------------------O
 		// | Draw particles                                                               |
 		// O------------------------------------------------------------------------------O
-		uint16_t nParticleCount = Game.BBC.ram[0x1e58]; // number_of_particles
+		uint16_t nParticleCount = Game.BBC.ram[GAME_RAM_PARTICLE_COUNT]; // number_of_particles
 
 		if (nParticleCount != 0xFF) {
 			for (int i = 0; i < nParticleCount + 1; i++) {
@@ -365,7 +364,7 @@ public:
 				O.Teleporting,
 				O.Timer);
 
-			if (Game.BBC.ram[0x9b00 + nObjectID] != 0) nObjectCount++; // For debugging
+			if (Game.BBC.ram[OS_Y + nObjectID] != 0) nObjectCount++; // For debugging
 		}
 		// O------------------------------------------------------------------------------O
 
