@@ -622,14 +622,22 @@ void Exile::PatchEnhancedExileRAM() {
 		BBC.write(site + 2, (uint8_t)(newOp >> 8));
 	}
 
-	// --- Bump object-iteration loop bounds from 16 to 128 ---
-	BBC.ram[0x1E45] = 0x80;   // CPX #$10 → #$80  (update_objects exit at $1E44)
-	BBC.ram[0x1E5D] = 0x7F;   // LDX #$0F → #$7F  (remove_object_for_touching at $1E5C)
-	BBC.ram[0x1EA4] = 0x7F;   // LDY #$0F → #$7F  (find_most_distant_object at $1EA3)
-	BBC.ram[0x1EEC] = 0x80;   // CPY #$10 → #$80  (create_new_object bound at $1EEB)
-	BBC.ram[0x34AA] = 0x7F;   // LDX #$0F → #$7F  (accelerate_all_objects at $34A9)
-	BBC.ram[0x3CB9] = 0x7F;   // LDY #$0F → #$7F  (find_or_count_objects at $3CB8)
-	BBC.ram[0x6528] = 0x7F;   // LDY #$0F → #$7F  (mark_objects_as_not_plotted at $6527)
+	// --- Object-iteration loop bounds stay at 16 ---
+	// LOOP-BOUND BUMPS DISABLED: bumping to 128 needs all 9 of standard's trampoline
+	// patches ported too ($1A62→$FF10, $1A8F→$FF00, $1DBE→$FF20, $1E3C→$FE00,
+	// $1EDF→$FE10, $27B7→$FE20, $4BFB→$FE30, $3CED→$FF40 + in-place EOR at $1E34).
+	// Those restructure the target/target_object storage so 128 slots can be
+	// addressed (original 5-bit mask only supports 32 objects). Without porting
+	// them, bumping loop bounds alone causes slot-aliasing bugs like "2 Finns".
+	// Leaving bounds at 16 means game iterates its original 16 slots only, which
+	// WORKS CORRECTLY with just byte-level relocation + runtime safety net.
+	// BBC.ram[0x1E45] = 0x80;   // DISABLED
+	// BBC.ram[0x1E5D] = 0x7F;   // DISABLED
+	// BBC.ram[0x1EA4] = 0x7F;   // DISABLED
+	// BBC.ram[0x1EEC] = 0x80;   // DISABLED
+	// BBC.ram[0x34AA] = 0x7F;   // DISABLED
+	// BBC.ram[0x3CB9] = 0x7F;   // DISABLED
+	// BBC.ram[0x6528] = 0x7F;   // DISABLED
 }
 
 void Exile::GenerateBackgroundGrid() {
