@@ -3,7 +3,34 @@
 Snapshot for picking up exile-olc6502-HD work in a fresh Claude session.
 
 **Working dir:** `/Users/dansimms/Documents/C++ Exile/exile-olc6502-HD`
-**Fork:** `github.com/OxygenBubbles/exile-olc6502-HD` (cloned, no commits pushed yet)
+**Canonical fork:** `github.com/dan-simms1/exile-olc6502-HD` — all commits pushed here.
+**Older clone:** `github.com/OxygenBubbles/exile-olc6502-HD` (stale — was just the initial fork).
+
+## Clone + build on another machine
+
+```bash
+git clone https://github.com/dan-simms1/exile-olc6502-HD.git
+cd exile-olc6502-HD
+brew install libpng                            # only dep
+make -f Makefile.mac                           # builds ./exile (standard, fully working)
+
+# Sideways (WIP, renders partially — see Pending below):
+clang++ -std=c++17 -O3 -flto -Wno-deprecated-declarations -I$(brew --prefix libpng)/include \
+        -DEXILE_VARIANT_SIDEWAYS_RAM -c -o Exile.o Exile.cpp
+clang++ -std=c++17 -O3 -flto -Wno-deprecated-declarations -I$(brew --prefix libpng)/include \
+        -DEXILE_VARIANT_SIDEWAYS_RAM -c -o Main.o Main.cpp
+clang++ -std=c++17 -O3 -flto -Wno-deprecated-declarations -I$(brew --prefix libpng)/include \
+        -c -o Bus.o Bus.cpp
+clang++ -std=c++17 -O3 -flto -Wno-deprecated-declarations -I$(brew --prefix libpng)/include \
+        -c -o olc6502.o olc6502.cpp
+clang++ -o exile-sideways Bus.o Exile.o olc6502.o Main.o \
+        -L$(brew --prefix libpng)/lib -lpng \
+        -framework GLUT -framework OpenGL -framework Carbon -pthread -flto
+# IMPORTANT: if you switch variants, `rm *.o` first — stale object files baked with the
+# wrong address constants were our most-painful bug in this investigation.
+```
+
+The repo includes all needed ROM files in tree: `bmain.rom`, `bintro.rom`, `sram.rom`, `srom.rom`, `sinit.rom`, `sinit2.rom`, `snapshot_main.rom`.
 **Companion doc:** `LEARNINGS.md` (deeper reference for the TypeScript port and the macOS port specifics).
 
 ---
@@ -18,14 +45,28 @@ cd "/Users/dansimms/Documents/C++ Exile/exile-olc6502-HD"
 Loads `bmain.rom` + `bintro.rom` (Tom Seddon's authoritative ROMs) and applies HD patches. Tested visually — horizontal door present, game playable.
 
 ```bash
-./exile-sideways  # BBC Master sideways-RAM. Window now renders (blue screen) — game state uninitialised, see Pending #1
+./exile-sideways  # BBC Master sideways-RAM. Renders some game elements from jsbeeb snapshot.
+                  # Game freezes at wait_for_vsync ($1F93) — last-valid state stays on screen.
 ```
 
-**Progress made in latest session:**
-- Ported `Exile.h` constants to enhanced layout (`GAME_RAM_STARTGAMELOOP=0x19DA`, `GAME_RAM_INPUTS=0x1263`, `GAME_RAM_SCREENFLASH=0x1FD9`, `GAME_RAM_EARTHQUAKE=0x2639`, `GAME_RAM_GRID_CLASSIFY=0x23CB`).
-- Verified sprite-plot-off patches at `$0CA5`/`$10D2` are identical in both ROM versions and applied them inline for sideways.
-- Pickup key bug: PGE's GLUT platform was missing `mapKeys[44]=Key::COMMA` (and other OEM keys). Patched `olcPixelGameEngine.h`. Standard's pickup (comma) now works.
-- Sideways variant's main thread was hanging inside the "run CPU until PC returns to STARTGAMELOOP" inner loop because the game state is uninitialised (SINIT/SINIT2 boot code never executed), so PC walks off into zeroed RAM and never returns. Added a `nCycleSafetyCap = 20000` bailout so the main loop can still render. Result: window now shows a blue clear, confirming PGE/GLUT path works; game just has no valid state to render.
+**Where sideways got to in this session (April 2026):**
+1. Load 64 KB post-boot RAM snapshot captured from jsbeeb (`snapshot_main.rom`) instead of trying to reproduce SINIT/SINIT2. snapshot_main.rom is committed in the repo.
+2. Initialise sideways-RAM banks to `0xFF` in `Bus::Bus()` (matches real empty ROM sockets); without this, stray reads returned 0x00 = BRK and spiralled PC → 0.
+3. Patch `$FFFE/FFFF` / `$FFFA/B` / `$FFFC/D` → `$FFF0` which holds an RTI. Any stray BRK returns cleanly.
+4. Snapshot-and-restore zero-page around `GenerateBackgroundGrid` AND per tile iteration (enhanced classify at `$23CB` writes scratch to ZP that corrupts live game state). Hung tiles `continue` instead of aborting the whole grid.
+5. Made object/particle/particle-count addresses variant-switchable in `Exile.h`:
+   - `OS_TYPE/SPRITE/X_LOW/X/Y_LOW/Y/FLAGS/PALETTE/TIMER` — sideways uses un-relocated `$0860+` (because we don't run `PatchExileRAM`), standard uses relocated `$9600+`.
+   - `PS_X_LOW/X/Y_LOW/Y/TYPE` + `PS_STRIDE` — sideways is interleaved `$2907 + N*8`, standard is `$8800 + N` after HD relocation.
+   - `GAME_RAM_PARTICLE_COUNT` — `$1E8B` (sideways) vs `$1E58` (standard HD-relocated).
+   - `Exile::Particle()` now scales by `PS_STRIDE`, `Exile::Object()` uses `OS_*` constants. Same code compiles both variants.
+
+**Current state (as of session end):** game renders the player ship but tiles look wrong. Freezes at `wait_for_vsync` `$1F93` because we don't emulate VSYNC IRQ. Attempting to fake vsync by poking `$11DC = 2` OR triggering `cpu.irq()` caused visible regression (end-of-frame code corrupts rendering); reverted. Safety cap of 5M instructions prevents UI hang.
+
+**Fresh reviewer: the thing to verify first on a new machine** is whether the sideways binary's baked-in addresses match the `EXILE_VARIANT_SIDEWAYS_RAM` define. Our worst debugging hour came from `Exile.o` being stale from a previous non-sideways build; the binary had `0x9600` (standard) baked in even though `Exile.h`'s ifdef said `0x0860`. Sanity check:
+```bash
+python3 -c "d=open('exile-sideways','rb').read(); print('0x9600 count:', d.count(bytes.fromhex('0096')), ' 0x0860 count:', d.count(bytes.fromhex('6008')))"
+```
+For a correctly-built sideways binary, the `$9600` count should be low (just the unreachable `PatchExileRAM` CopyRAM literals) and `$0860` count higher. Always `rm *.o` before switching variants.
 
 ---
 

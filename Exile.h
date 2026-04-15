@@ -42,6 +42,13 @@ const uint16_t PS_Y_LOW    = 0x2908;   // y_fraction
 const uint16_t PS_Y        = 0x290a;
 const uint16_t PS_TYPE     = 0x290c;   // colour_and_flags (no separate "type" byte in original)
 const uint16_t GAME_RAM_PARTICLE_COUNT = 0x1e8b;
+// Sprite bitmap base — enhanced ROM has it in SROM (paged into sideways RAM at $B3EC).
+const uint16_t SPRITE_BITMAP_BASE = 0xB3EC;
+const uint16_t SPRITE_BITMAP_END  = SPRITE_BITMAP_BASE + 0x0A20;
+const uint16_t SPRITE_WIDTH_LOOKUP    = SPRITE_BITMAP_END;          // $BE0C
+const uint16_t SPRITE_HEIGHT_LOOKUP   = SPRITE_WIDTH_LOOKUP + 0x7D; // $BE89
+const uint16_t SPRITE_OFFSET_A_LOOKUP = SPRITE_HEIGHT_LOOKUP + 0x7D; // $BF06
+const uint16_t SPRITE_OFFSET_B_LOOKUP = SPRITE_OFFSET_A_LOOKUP + 0x7D; // $BF83
 #else
 // BBC Micro standard ROM addresses.
 const uint16_t GAME_RAM_INPUTS             = 0x126b;
@@ -67,6 +74,12 @@ const uint16_t PS_Y_LOW    = 0x8900;
 const uint16_t PS_Y        = 0x8b00;
 const uint16_t PS_TYPE     = 0x8d00;
 const uint16_t GAME_RAM_PARTICLE_COUNT = 0x1e58;   // PatchExileRAM relocates the *8 form here
+const uint16_t SPRITE_BITMAP_BASE = 0x53EC;
+const uint16_t SPRITE_BITMAP_END  = 0x5E0C;
+const uint16_t SPRITE_WIDTH_LOOKUP    = 0x5E0C;
+const uint16_t SPRITE_HEIGHT_LOOKUP   = 0x5E89;
+const uint16_t SPRITE_OFFSET_A_LOOKUP = 0x5F06;
+const uint16_t SPRITE_OFFSET_B_LOOKUP = 0x5F83;
 #endif
 
 struct XY {

@@ -130,17 +130,20 @@ public:
 		// in its final location. Empirically, all enhanced-game code and data ends up in
 		// main RAM $0100-$7FFF; sideways RAM banks are empty post-boot on Master (only used
 		// as scratch space for sound samples during playback).
-		Game.BBC.bSidewaysPaging = true;   // enable ROMSEL/$FE30 emulation for any runtime use
+		Game.BBC.bSidewaysPaging = true;
 		Game.BBC.activeBank = 7;           // jsbeeb snapshot had bank 7 paged in
 		Game.LoadExileFromBinary("snapshot_main.rom", 0x0000);
+		// Not loading SROM into bank 7 — when we did, something in the game's paging logic
+		// ended up reading corrupt bytes from there and broke rendering. Bank 7 stays FF-
+		// filled (matches the jsbeeb snapshot's bank content).
 
 		// The jsbeeb snapshot stores 0 at $FFFE/$FFFF because the MOS ROM lives outside the
-		// 128 KB dump. Without a valid IRQ/BRK vector any stray BRK jumps to PC=0 and we
-		// spin forever. Plant an RTI at $FFF0 and point the IRQ/BRK + NMI vectors at it.
-		Game.BBC.ram[0xFFF0] = 0x40;             // RTI
-		Game.BBC.ram[0xFFFA] = 0xF0; Game.BBC.ram[0xFFFB] = 0xFF;   // NMI vector -> $FFF0
-		Game.BBC.ram[0xFFFC] = 0xF0; Game.BBC.ram[0xFFFD] = 0xFF;   // RESET vector
-		Game.BBC.ram[0xFFFE] = 0xF0; Game.BBC.ram[0xFFFF] = 0xFF;   // IRQ/BRK vector
+		// 128 KB dump. Plant an RTI at $FFF0 and point IRQ/NMI vectors there so any stray
+		// BRK just returns cleanly (matches the original working revision).
+		Game.BBC.ram[0xFFF0] = 0x40; // RTI
+		Game.BBC.ram[0xFFFA] = 0xF0; Game.BBC.ram[0xFFFB] = 0xFF;   // NMI
+		Game.BBC.ram[0xFFFC] = 0xF0; Game.BBC.ram[0xFFFD] = 0xFF;   // RESET
+		Game.BBC.ram[0xFFFE] = 0xF0; Game.BBC.ram[0xFFFF] = 0xFF;   // IRQ/BRK
 
 		// Turn off BBC's native sprite/background plotter so PGE draws instead.
 		Game.BBC.ram[0x0CA5] = 0x4C; Game.BBC.ram[0x0CA6] = 0xC0; Game.BBC.ram[0x0CA7] = 0x0C;
@@ -213,10 +216,12 @@ public:
 
 			Game.BBC.cpu.pc = GAME_RAM_STARTGAMELOOP;
 #ifdef EXILE_VARIANT_SIDEWAYS_RAM
-			// Sideways-RAM: stack contains SRAM-loaded garbage at boot, so the first RTS pops
-			// an invalid return address. Safety-cap protects the UI until proper SINIT/SINIT2
-			// boot emulation is added. See SESSION-STATE.md for the trace findings.
-			int nCycleSafetyCap = 200000;
+			// Reverted the vsync / IRQ fakes — with them the game reached end-of-frame code
+			// that corrupted rendering. Without them the game halts at wait_for_vsync ($1F93)
+			// which lets the last-valid state stay on screen until we find a cleaner fix.
+			// Safety-cap protects the UI when the game loop never reaches $19DA.
+			int nCycleSafetyCap = 5000000;   // 5M — lets a full enhanced frame complete naturally
+			int nCapStart = nCycleSafetyCap;
 			do {
 				uint16_t prevPc = Game.BBC.cpu.pc;
 				do Game.BBC.cpu.clock();
@@ -227,6 +232,17 @@ public:
 				if (Game.BBC.cpu.pc == GAME_RAM_EARTHQUAKE) nEarthQuakeOffset = (Game.BBC.cpu.a & 1);
 				if (--nCycleSafetyCap <= 0) break;
 			} while (Game.BBC.cpu.pc != GAME_RAM_STARTGAMELOOP);
+			// One-shot report of whether the frame completed within cap.
+			static bool bLoggedCompletion = false;
+			if (!bLoggedCompletion) {
+				bLoggedCompletion = true;
+				int nInstrs = nCapStart - nCycleSafetyCap;
+				bool bFinished = (Game.BBC.cpu.pc == GAME_RAM_STARTGAMELOOP);
+				std::cout << "first sideways frame: " << nInstrs << " instructions, "
+				          << (bFinished ? "REACHED $19DA naturally" : "HIT CAP (frame incomplete)")
+				          << "  final PC=$" << std::hex << Game.BBC.cpu.pc << std::dec
+				          << std::endl;
+			}
 #else
 			do {
 				do Game.BBC.cpu.clock();

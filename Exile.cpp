@@ -493,9 +493,10 @@ void Exile::RestoreOldBytesInRange(uint16_t lo, uint16_t hi) {
 
 void Exile::GenerateSpriteSheet() {
 	int pixel_i = 0; int pixel_j = 0;
-	for (int nRAM = 0x53ec; nRAM < 0x5e0c; nRAM++) {
+	for (int nRAM = SPRITE_BITMAP_BASE; nRAM < SPRITE_BITMAP_END; nRAM++) {
+		uint8_t b = BBC.read((uint16_t)nRAM);  // go via Bus so sideways paging is honoured
 		for (int k = 0; k < 4; k++) {
-			int nColourIndex = 2 * ((BBC.ram[nRAM] >> (7 - k)) & 1) + ((BBC.ram[nRAM] >> (3 - k)) & 1);
+			int nColourIndex = 2 * ((b >> (7 - k)) & 1) + ((b >> (3 - k)) & 1);
 			nSpriteSheet[pixel_i][pixel_j] = nColourIndex;
 			pixel_i++;
 		}
@@ -530,11 +531,11 @@ void Exile::DrawExileSprite_PixelByPixel(olc::PixelGameEngine* PGE,
 	                                     uint8_t nHorizontalInvert, uint8_t nVerticalInvert,
 	                                     uint8_t nTeleporting, uint8_t nTimer) {
 
-	//Get sprite info from RAM:
-	uint8_t nWidth = BBC.ram[0x5e0c + nSpriteID]; // sprite_width_lookup
-	uint8_t nHeight = BBC.ram[0x5e89 + nSpriteID]; // sprite_height_lookup
-	uint8_t nOffsetA = BBC.ram[0x5f06 + nSpriteID]; // sprite_offset_a_lookup
-	uint8_t nOffsetB = BBC.ram[0x5f83 + nSpriteID]; // sprite_offset_b_lookup
+	//Get sprite info from RAM (via Bus so paged sideways RAM works for enhanced):
+	uint8_t nWidth   = BBC.read((uint16_t)(SPRITE_WIDTH_LOOKUP + nSpriteID));
+	uint8_t nHeight  = BBC.read((uint16_t)(SPRITE_HEIGHT_LOOKUP + nSpriteID));
+	uint8_t nOffsetA = BBC.read((uint16_t)(SPRITE_OFFSET_A_LOOKUP + nSpriteID));
+	uint8_t nOffsetB = BBC.read((uint16_t)(SPRITE_OFFSET_B_LOOKUP + nSpriteID));
 
 	//Sprites with bit 0 set in width / height, have "built in" flipping
 	nHorizontalInvert = (nWidth & 0x01) ^ nHorizontalInvert;
@@ -622,9 +623,9 @@ void Exile::DrawExileSprite(olc::PixelGameEngine* PGE,
 		// Save draw target:
 		olc::Sprite* sprDrawTarget = PGE->GetDrawTarget();
 
-		//Extract width and height:
-		uint8_t nWidth = BBC.ram[0x5e0c + nSpriteID]; // sprite_width_lookup
-		uint8_t nHeight = BBC.ram[0x5e89 + nSpriteID]; // sprite_height_lookup
+		//Extract width and height (via Bus so paged sideways RAM works for enhanced):
+		uint8_t nWidth  = BBC.read((uint16_t)(SPRITE_WIDTH_LOOKUP + nSpriteID));
+		uint8_t nHeight = BBC.read((uint16_t)(SPRITE_HEIGHT_LOOKUP + nSpriteID));
 		nWidth = (nWidth >> 4);
 		nHeight = (nHeight >> 3);
 
