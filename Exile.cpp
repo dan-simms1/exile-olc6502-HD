@@ -444,20 +444,12 @@ void Exile::PatchEnhancedExileRAM() {
 	//   (LDA $BE89,X / CMP #$38 / BCS $3594) sits at $352D.
 	BBC.ram[0x352D] = 0x18; BBC.ram[0x352E] = 0x18;
 
-	// NOP out the copy-protection JSR at $6540 in SINIT2 so we can run the
-	// rest of SINIT2 (game-state decrypt + VIA setup + JMP $01D0 wipe_screen_and_start_game)
-	// without getting stuck waiting for the player to type a word from the novella.
-	//   Original: 20 BE 66    JSR $66BE ; copy_protection_screen
-	//   Patched:  EA EA EA    NOP NOP NOP
-	BBC.ram[0x6540] = 0xEA;
-	BBC.ram[0x6541] = 0xEA;
-	BBC.ram[0x6542] = 0xEA;
-
-	// Also NOP the second copy-protection check at $2740 JSR $39B5 (called when
-	// summoning Triax) so mid-game doesn't hang either.
-	BBC.ram[0x2740] = 0xEA;
-	BBC.ram[0x2741] = 0xEA;
-	BBC.ram[0x2742] = 0xEA;
+	// Copy-protection NOPs REMOVED — standard has the same copy-protection
+	// checks and works fine without patching them out, so patching them in
+	// enhanced was probably making things worse. (Left here as documentation
+	// of what we tried.)
+	// BBC.ram[0x6540..0x6542] = 0xEA  // would NOP out SINIT2's copy-protection screen JSR
+	// BBC.ram[0x2740..0x2742] = 0xEA  // would NOP out mid-game check_copy_protection JSR
 
 	// Note: we tried running SINIT2 from $6495, but it gets stuck at its
 	// decrypt-verification loop at $64FF-$6504 (infinite_loop_if_fallback_
