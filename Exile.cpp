@@ -444,6 +444,50 @@ void Exile::PatchEnhancedExileRAM() {
 	//   (LDA $BE89,X / CMP #$38 / BCS $3594) sits at $352D.
 	BBC.ram[0x352D] = 0x18; BBC.ram[0x352E] = 0x18;
 
+	// HD widescreen-stars port for enhanced.
+	// Standard HD replaces $26C8-$26E3 with 9x JSR $FF50 (a new subroutine that
+	// uses BIG random-tile range #$3F and calls std's $2743). Enhanced's star
+	// code is at $26F7-$2714 with different structure — and $2743 in enhanced is
+	// unrelated code, so we can't reuse standard's $FF50 byte-for-byte.
+	// Instead: plant a new "add_random_star" subroutine at $FE00 using enhanced's
+	// $2772 get_random_tile_near_player, then replace enhanced's $26F7-$2714
+	// star block with 9x JSR $FE00 + JMP to skip_adding_star.
+	//
+	// Subroutine at $FE00 (mirrors enhanced's $26F7-$2714 logic with wide radius):
+	{
+		uint8_t sub[] = {
+			0xA9, 0x3F,              // LDA #$3F  (big search radius, like std HD)
+			0x20, 0x72, 0x27,        // JSR $2772  (get_random_tile_near_player)
+			0xA5, 0x97,              // LDA $97  ; tile_y
+			0xC9, 0x4E,              // CMP #$4E
+			0xB0, 0x18,              // BCS +24 → $FE23 RTS
+			0x85, 0x8D,              // STA $8D  ; new_particles_y
+			0xA5, 0x95,              // LDA $95  ; tile_x
+			0x85, 0x8B,              // STA $8B  ; new_particles_x
+			0xA9, 0x00,              // LDA #$00
+			0x85, 0x89,              // STA $89  ; y_fraction
+			0x85, 0x87,              // STA $87  ; x_fraction
+			0xAD, 0xD9, 0x19,        // LDA $19D9 (player_dematerialised)
+			0x05, 0x00,              // ORA $00  ; tile_was_from_map_data
+			0x30, 0x05,              // BMI +5 → RTS  (skip if inside spaceship)
+			0xA0, 0x4D,              // LDY #$4D  ; PARTICLE_STAR_OR_MUSHROOM
+			0x20, 0xBF, 0x21,        // JSR $21BF ; add_particle
+			0x60                     // RTS
+		};
+		for (size_t i = 0; i < sizeof(sub); ++i) BBC.ram[0xFE00 + i] = sub[i];
+	}
+	// Replace enhanced's star block $26F7-$2714 with 9x JSR $FE00 + JMP $2715:
+	uint16_t pc = 0x26F7;
+	for (int i = 0; i < 9; i++) {
+		BBC.ram[pc++] = 0x20;           // JSR
+		BBC.ram[pc++] = 0x00;           // low byte of $FE00
+		BBC.ram[pc++] = 0xFE;           // high byte of $FE00
+	}
+	// pc should now be $2712 — pad to $2715 with JMP to skip the now-dead star code
+	BBC.ram[pc++] = 0x4C;               // JMP
+	BBC.ram[pc++] = 0x15;               // low of $2715
+	BBC.ram[pc++] = 0x27;               // high of $2715
+
 	// Copy-protection NOPs REMOVED — standard has the same copy-protection
 	// checks and works fine without patching them out, so patching them in
 	// enhanced was probably making things worse. (Left here as documentation
