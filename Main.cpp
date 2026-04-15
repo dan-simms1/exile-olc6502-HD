@@ -141,30 +141,8 @@ public:
 		// the game itself pushed, not leftover boot data.
 		for (uint16_t a = 0x0100; a <= 0x01FF; a++) Game.BBC.ram[a] = 0x00;
 
-		// Empty OS-ROM region: plant an RTI at $FFF0 and aim all vectors at it so stray BRKs
-		// return cleanly rather than spiralling through zero-filled ROM.
-		Game.BBC.ram[0xFFF0] = 0x40; // RTI
-		Game.BBC.ram[0xFFFA] = 0xF0; Game.BBC.ram[0xFFFB] = 0xFF;   // NMI
-		Game.BBC.ram[0xFFFC] = 0xF0; Game.BBC.ram[0xFFFD] = 0xFF;   // RESET
-		Game.BBC.ram[0xFFFE] = 0xF0; Game.BBC.ram[0xFFFF] = 0xFF;   // IRQ/BRK
-
-		// Turn off BBC's native sprite/background plotter so PGE draws instead.
-		Game.BBC.ram[0x0CA5] = 0x4C; Game.BBC.ram[0x0CA6] = 0xC0; Game.BBC.ram[0x0CA7] = 0x0C;
-		Game.BBC.ram[0x10D2] = 0x4C; Game.BBC.ram[0x10D3] = 0xED; Game.BBC.ram[0x10D4] = 0x10;
-
-		// HD sprite-too-tall fix — enhanced equivalent of standard's $34C6 patch.
-		// Enhanced $352D has the same LDA $BE89,X / CMP #&38 / BCS pattern; CLC CLC lets
-		// tall sprites be stored.
-		Game.BBC.ram[0x352D] = 0x18; Game.BBC.ram[0x352E] = 0x18;
-
-		// HD LDY tweak at $0C5A — same address in both ROMs (bytes a0 04 → a0 0a).
-		Game.BBC.ram[0x0C5B] = 0x0A;
-
-		// NOTE: Running SINIT ($7690) / SINIT2 ($6489) here does NOT work — SINIT's code
-		// expects MOS ROM present and ends up in an address we haven't loaded (trace shows
-		// PC wandering $53FF-$5404). Post-boot memory placement is needed instead, either
-		// via a jsbeeb post-boot snapshot (previous approach) or by hand-populating the
-		// player object and critical game-state variables.
+		// Apply all HD patches + IRQ-vector fakes for the enhanced ROM.
+		Game.PatchEnhancedExileRAM();
 #else
 		// BBC Micro standard layout: BMAIN $0100-$60FF (post-relocation), BINTRO at $7200.
 		Game.LoadExileFromBinary("bmain.rom",  0x0100);

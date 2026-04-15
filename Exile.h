@@ -51,6 +51,8 @@ const uint16_t SPRITE_OFFSET_A_LOOKUP = SPRITE_HEIGHT_LOOKUP + 0x7D; // $BF06
 const uint16_t SPRITE_OFFSET_B_LOOKUP = SPRITE_OFFSET_A_LOOKUP + 0x7D; // $BF83
 const uint16_t PALETTE_PIXEL_TABLE    = 0x1E7B;   // 00 03 0C 0F 30 33 3C 3F ...
 const uint16_t PALETTE_VALUE_LOOKUP   = 0x0B79;   // same address in both versions
+const uint16_t GAME_RAM_X_RANGES      = 0x14E7;   // waterline x-range table (enh shifts +$15 vs std)
+const uint16_t HD_SPRITE_TOO_TALL_BCS = 0x352D;   // enhanced equivalent of std's $34C6 BCS patch site
 #else
 // BBC Micro standard ROM addresses.
 const uint16_t GAME_RAM_INPUTS             = 0x126b;
@@ -84,6 +86,8 @@ const uint16_t SPRITE_OFFSET_A_LOOKUP = 0x5F06;
 const uint16_t SPRITE_OFFSET_B_LOOKUP = 0x5F83;
 const uint16_t PALETTE_PIXEL_TABLE    = 0x1E48;
 const uint16_t PALETTE_VALUE_LOOKUP   = 0x0B79;
+const uint16_t GAME_RAM_X_RANGES      = 0x14D2;
+const uint16_t HD_SPRITE_TOO_TALL_BCS = 0x34C6;
 #endif
 
 struct XY {
@@ -138,6 +142,7 @@ public:
 	bool LoadExileFromBinaryToBank(std::string sFile, uint8_t bank, uint16_t offsetInBank);
 	bool LoadExileFromDisassembly(std::string sFile);
 	void PatchExileRAM();
+	void PatchEnhancedExileRAM();   // Enhanced/sideways-ROM peer of PatchExileRAM
 
 	std::vector<XY> WaterTiles;
 

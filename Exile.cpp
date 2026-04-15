@@ -409,6 +409,60 @@ void Exile::PatchExileRAM() {
 	while (getline(iss, sLine)) ParseAssemblyLine(sLine);
 }
 
+// Enhanced/sideways-ROM peer of PatchExileRAM. Applies the HD patches that
+// DO translate to the enhanced ROM, sets up IRQ fake vectors, and (TODO)
+// relocates sound samples into a sideways bank.
+//
+// The 21 address-specific HD patches in PatchExileRAM() do NOT apply here:
+// enhanced has different instructions at those addresses (confirmed by
+// byte-compare in MEMORY-AUDIT.md). The particle-restructure and 128-object
+// expansion are also skipped — enhanced natively uses an 8-byte-interleaved
+// particle layout at $2907+N*8 and keeps 16 object slots at $0860+.
+//
+// Radius bump (std has INC $9B at $111F/$1121) and stars widescreen
+// ($26C8-$26E3 rewrite) are NOT YET ported — enhanced has different
+// structure at those sites and needs dedicated research.
+void Exile::PatchEnhancedExileRAM() {
+	// Empty OS-ROM region: plant an RTI at $FFF0 and aim every 6502 vector
+	// at it so stray BRKs return cleanly instead of spiralling through
+	// zero-filled OS-ROM space (we don't load MOS).
+	BBC.ram[0xFFF0] = 0x40;                                  // RTI
+	BBC.ram[0xFFFA] = 0xF0; BBC.ram[0xFFFB] = 0xFF;          // NMI   → $FFF0
+	BBC.ram[0xFFFC] = 0xF0; BBC.ram[0xFFFD] = 0xFF;          // RESET → $FFF0
+	BBC.ram[0xFFFE] = 0xF0; BBC.ram[0xFFFF] = 0xFF;          // IRQ/BRK → $FFF0
+
+	// PORTABLE HD patches — verified to have same address+bytes in both ROMs:
+	//   $0CA5 → JMP $0CC0 : skip BBC object sprite plotter (we render via PGE).
+	BBC.ram[0x0CA5] = 0x4C; BBC.ram[0x0CA6] = 0xC0; BBC.ram[0x0CA7] = 0x0C;
+	//   $10D2 → JMP $10ED : skip BBC background tile plotter.
+	BBC.ram[0x10D2] = 0x4C; BBC.ram[0x10D3] = 0xED; BBC.ram[0x10D4] = 0x10;
+	//   $0C5B = $0A : HD tweak, LDY #$04 → LDY #$0A. Same address both ROMs.
+	BBC.ram[0x0C5B] = 0x0A;
+
+	// ENHANCED-SPECIFIC patches — different address from standard but same purpose:
+	//   Sprite-too-tall BCS → CLC CLC. Std uses $34C6; enhanced's equivalent
+	//   (LDA $BE89,X / CMP #$38 / BCS $3594) sits at $352D.
+	BBC.ram[0x352D] = 0x18; BBC.ram[0x352E] = 0x18;
+
+	// TODO — port these HD patches to enhanced once their addresses are located:
+	//   [ ] Radius bump: std has INC $9B at $111F/$1121. Enhanced has zero
+	//       occurrences of that opcode — need to find where enhanced manages
+	//       sprite-plotting radius (probably different ZP var or different
+	//       increment mechanism).
+	//   [ ] Stars widescreen: std rewrites $26C8-$26E3 with 9x JSR $FF50 for
+	//       a wider spawn area. Enhanced $26C8 is worm-spawning code; enhanced
+	//       star-drawing starts at $26F7 with completely different structure.
+	//   [ ] funny_table: enhanced equivalent is at $19CB. Bytes are already
+	//       identical to the HD-patched standard (`01 0c 04 00 00 02`), so
+	//       nothing to write — documented for completeness.
+	//
+	// TODO — sound-sample relocation (SINIT's move_samples_to_sideways_ram_loop):
+	//   [ ] Copy main-RAM $1984-$5883 (16128 bytes) into a sideways bank
+	//       (e.g. bank 4 at offset $0100..$3FFF) so the sound-playback code
+	//       at $99EC finds samples where it expects them ($8100-$BFFF of the
+	//       sample bank). Deferred — sound is out of scope until display works.
+}
+
 void Exile::GenerateBackgroundGrid() {
 	// Inject some dummy code
 	BBC.ram[0xffa0] = 0x20; // JSR <grid_classify_routine>
@@ -795,7 +849,7 @@ uint16_t Exile::WaterLevel(uint8_t x)
 
 	for (int i = 3; i >= 0; i--) {
 
-		uint8_t nRangeX = BBC.ram[0x14d2 + i]; // x_ranges
+		uint8_t nRangeX = BBC.ram[GAME_RAM_X_RANGES + i]; // x_ranges
 
 		if (x > nRangeX){
 			uint16_t nWaterLevelHigh = BBC.ram[0x0832 + i]; // water_level[i]
@@ -815,6 +869,8 @@ void Exile::Cheat_GetAllEquipment()
 
 void Exile::Cheat_StoreAnyObject()
 {
-	BBC.ram[0x34c6] = 0x18;
-	BBC.ram[0x34c7] = 0x18;
+	// HD "bypass sprite-too-tall" BCS → CLC CLC. Address differs between variants
+	// (std $34C6 · enh $352D), hence the variant-switched constant in Exile.h.
+	BBC.ram[HD_SPRITE_TOO_TALL_BCS    ] = 0x18;
+	BBC.ram[HD_SPRITE_TOO_TALL_BCS + 1] = 0x18;
 }
