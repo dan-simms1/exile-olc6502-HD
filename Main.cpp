@@ -366,7 +366,7 @@ public:
 		// | Draw game objects                                                            |
 		// O------------------------------------------------------------------------------O
 		int nObjectCount = 0;
-		for (int nObjectID = 0; nObjectID < 128; nObjectID++) {
+		for (int nObjectID = 0; nObjectID < OBJECT_SLOTS; nObjectID++) {
 			Obj O;
 			O = Game.Object(nObjectID);
 
