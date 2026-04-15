@@ -57,6 +57,22 @@ bool Exile::LoadExileFromBinary(std::string sFile, uint16_t loadAddr) {
 	return true;
 }
 
+// Load a ROM file into a specific sideways-RAM bank, at an offset within that bank.
+// The paged window is $8000-$BFFF, so offsetInBank = rom_load_addr - 0x8000.
+bool Exile::LoadExileFromBinaryToBank(std::string sFile, uint8_t bank, uint16_t offsetInBank) {
+	std::ifstream f(sFile, std::ios::binary);
+	if (!f.is_open()) { std::cout << "ROM file missing: " << sFile << std::endl; return false; }
+	std::vector<uint8_t> buf((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+	bank &= 0x0F;
+	for (size_t i = 0; i < buf.size() && (offsetInBank + i) < BBC.sidewaysBanks[bank].size(); i++) {
+		BBC.sidewaysBanks[bank][offsetInBank + i] = buf[i];
+	}
+	std::cout << "Loaded " << buf.size() << " bytes from " << sFile
+	          << " into sideways bank " << (int)bank
+	          << " at offset 0x" << std::hex << offsetInBank << std::dec << std::endl;
+	return true;
+}
+
 bool Exile::LoadExileFromDisassembly(std::string sFile) {
 	bFirstWriteWins = true; // enable only for disassembly load — ignores self-mod alt annotations in newer files
 	// Load Exile RAM from disassembly:
