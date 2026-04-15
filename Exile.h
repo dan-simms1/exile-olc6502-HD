@@ -19,17 +19,18 @@ const uint16_t GAME_RAM_STARTGAMELOOP      = 0x19da;
 const uint16_t GAME_RAM_SCREENFLASH        = 0x1fd9;
 const uint16_t GAME_RAM_EARTHQUAKE         = 0x2639;
 const uint16_t GAME_RAM_GRID_CLASSIFY      = 0x23cb; // get_tile_and_set_sprite_variables
-// Object stack base addresses — enhanced now uses the HD 128-slot relocation at $9600+
-// (applied in PatchEnhancedExileRAM via CopyRAM + 192 operand rewrites). Matches standard.
-const uint16_t OS_TYPE     = 0x9600;
-const uint16_t OS_SPRITE   = 0x9700;
-const uint16_t OS_X_LOW    = 0x9800;
-const uint16_t OS_X        = 0x9900;
-const uint16_t OS_Y_LOW    = 0x9a00;
-const uint16_t OS_Y        = 0x9b00;
-const uint16_t OS_FLAGS    = 0x9c00;
-const uint16_t OS_PALETTE  = 0x9d00;
-const uint16_t OS_TIMER    = 0xa500;
+// Object/particle stack base addresses — sideways skips PatchExileRAM, so objects are at
+// their ORIGINAL (un-relocated) addresses. Each base contains 16 entries; the HD
+// 128-object expansion isn't applied for sideways yet.
+const uint16_t OS_TYPE     = 0x0860;
+const uint16_t OS_SPRITE   = 0x0870;
+const uint16_t OS_X_LOW    = 0x0880;
+const uint16_t OS_X        = 0x0891;
+const uint16_t OS_Y_LOW    = 0x08a3;
+const uint16_t OS_Y        = 0x08b4;
+const uint16_t OS_FLAGS    = 0x08c6;
+const uint16_t OS_PALETTE  = 0x08d6;
+const uint16_t OS_TIMER    = 0x0956;
 // Original (un-relocated) particle stack: interleaved 8 bytes per particle starting at $2907.
 //   $2907,X = x_fraction   $2908,X = y_fraction   $2909,X = x   $290A,X = y
 //   $290B,X = ttl          $290C,X = colour_and_flags
@@ -52,7 +53,7 @@ const uint16_t PALETTE_PIXEL_TABLE    = 0x1E7B;   // 00 03 0C 0F 30 33 3C 3F ...
 const uint16_t PALETTE_VALUE_LOOKUP   = 0x0B79;   // same address in both versions
 const uint16_t GAME_RAM_X_RANGES      = 0x14E7;   // waterline x-range table (enh shifts +$15 vs std)
 const uint16_t HD_SPRITE_TOO_TALL_BCS = 0x352D;   // enhanced equivalent of std's $34C6 BCS patch site
-const int      OBJECT_SLOTS           = 128;      // enhanced relocated to $9600+ (same 128-slot layout as standard HD)
+const int      OBJECT_SLOTS           = 16;       // enhanced keeps original 16 slots at $0860 (HD 128-object relocation not ported)
 #else
 // BBC Micro standard ROM addresses.
 const uint16_t GAME_RAM_INPUTS             = 0x126b;
