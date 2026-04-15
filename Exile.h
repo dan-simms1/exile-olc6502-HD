@@ -11,11 +11,23 @@ const int GAME_TILE_WIDTH = 32;
 const int GAME_TILE_HEIGHT = 32;
 const uint8_t GAME_TILE_BLANK = 0x19;
 
-const uint16_t GAME_RAM_INPUTS = 0x126b;
+#ifdef EXILE_VARIANT_SIDEWAYS_RAM
+// BBC Master sideways-RAM (enhanced) ROM addresses — derived from exile-enhanced.txt.
+const uint16_t GAME_RAM_INPUTS             = 0x1263;
+const uint16_t GAME_RAM_PLAYER_TELEPORTING = 0x19d9;
+const uint16_t GAME_RAM_STARTGAMELOOP      = 0x19da;
+const uint16_t GAME_RAM_SCREENFLASH        = 0x1fd9;
+const uint16_t GAME_RAM_EARTHQUAKE         = 0x2639;
+const uint16_t GAME_RAM_GRID_CLASSIFY      = 0x23cb; // get_tile_and_set_sprite_variables
+#else
+// BBC Micro standard ROM addresses.
+const uint16_t GAME_RAM_INPUTS             = 0x126b;
 const uint16_t GAME_RAM_PLAYER_TELEPORTING = 0x19b5;
-const uint16_t GAME_RAM_STARTGAMELOOP = 0x19b6;
-const uint16_t GAME_RAM_SCREENFLASH = 0x1fa6;
-const uint16_t GAME_RAM_EARTHQUAKE = 0x260a;
+const uint16_t GAME_RAM_STARTGAMELOOP      = 0x19b6;
+const uint16_t GAME_RAM_SCREENFLASH        = 0x1fa6;
+const uint16_t GAME_RAM_EARTHQUAKE         = 0x260a;
+const uint16_t GAME_RAM_GRID_CLASSIFY      = 0x2398;
+#endif
 
 struct XY {
 	uint16_t GameX;          uint16_t GameY;
@@ -63,6 +75,9 @@ public:
 	olc6502 cpu;
 
 	void Initialise();
+	void RestoreOldBytesInRange(uint16_t lo, uint16_t hi);
+	bool bFirstWriteWins = false;
+	bool LoadExileFromBinary(std::string sFile, uint16_t loadAddr);
 	bool LoadExileFromDisassembly(std::string sFile);
 	void PatchExileRAM();
 

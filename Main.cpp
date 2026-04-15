@@ -3,6 +3,15 @@
 
 #include "Exile.h"
 #include <chrono>
+#ifndef BISECT_LO
+#define BISECT_LO 0
+#endif
+#ifndef BISECT_HI
+#define BISECT_HI 0
+#endif
+#ifndef BISECT_HI
+#define BISECT_HI 0xFFFF
+#endif
 
 // O------------------------------------------------------------------------------O
 // | Screen constants and global variables                                        |
@@ -14,7 +23,10 @@ std::chrono::duration<double> Time_GameLoop;
 std::chrono::duration<double> Time_DrawScreen;
 
 const float SCREEN_WIDTH = 1280;        const float SCREEN_HEIGHT = 720; // 720p display
-const bool SCREEN_FULLSCREEN = false;   const bool SCREEN_VSYNC = true;
+#ifndef SCREEN_FULLSCREEN
+const bool SCREEN_FULLSCREEN = true;
+#endif
+const bool SCREEN_VSYNC = true;
 const float SCREEN_ZOOM = 2.0f;
 const float SCREEN_BORDER_SCALE = 0.3f; // To trigger scrolling
 
@@ -103,9 +115,26 @@ public:
 		int nNull = 0;
 		olc::PixelGameEngine::SetDrawTarget(nNull);
 
-		// Load Exile RAM from disassembly, and patch to run in HD:
-		Game.LoadExileFromDisassembly("exile-disassembly.txt"); // www.level7.org.uk/miscellany/exile-disassembly.txt
+		// Load Exile RAM from authoritative ROM (built from Tom Seddon's BeebAsm disassembly).
+		// Choose at compile time between BBC Micro standard and sideways-RAM (BBC Master) variants.
+#ifdef EXILE_VARIANT_SIDEWAYS_RAM
+		// Sideways RAM (Master) layout, AFTER boot-time relocation:
+		//   SRAM is assembled to run at $0100 (the .lea load=$1200 is the BBC's pre-relocation address).
+		//   SROM is sideways-ROM content; on real hardware it pages into $8000-$BFFF.
+		//   We pre-place it at $8000 so direct memory accesses work in our flat-RAM emulator.
+		//   SINIT/SINIT2 are boot routines; not needed once memory is in final layout.
+		Game.LoadExileFromBinary("sram.rom",   0x0100);
+		Game.LoadExileFromBinary("srom.rom",   0x8000);
+		// Turn off BBC's native sprite/background plotter so PGE draws instead.
+		// (Sprite plotting addresses $0CA5, $10D2 are identical in standard and enhanced ROMs.)
+		Game.BBC.ram[0x0CA5] = 0x4C; Game.BBC.ram[0x0CA6] = 0xC0; Game.BBC.ram[0x0CA7] = 0x0C; // JMP $0CC0 — skip object plotter
+		Game.BBC.ram[0x10D2] = 0x4C; Game.BBC.ram[0x10D3] = 0xED; Game.BBC.ram[0x10D4] = 0x10; // JMP $10ED — skip background strip plotter
+#else
+		// BBC Micro standard layout: BMAIN $0100-$60FF (post-relocation), BINTRO at $7200.
+		Game.LoadExileFromBinary("bmain.rom",  0x0100);
+		Game.LoadExileFromBinary("bintro.rom", 0x7200);
 		Game.PatchExileRAM();
+#endif
 		Game.Initialise();
 
 		return true;
@@ -113,11 +142,35 @@ public:
 
 	bool OnUserUpdate(float fElapsedTime)
 	{
+#ifdef EXILE_VARIANT_SIDEWAYS_RAM
+		// Sideways-RAM variant: the game's object-handler dispatch (jump-via-RTS at $1A2E)
+		// requires state that only boot code sets up. Without running SINIT/SINIT2, CPU
+		// walks into empty RAM after ~861 instructions. See SESSION-STATE.md §1.
+		// Draw an informational banner and return, so the window stays responsive.
+		Clear(olc::Pixel(0, 0, 40));
+		DrawString(20, 20, "Exile (BBC Master sideways-RAM variant)", olc::WHITE, 2);
+		DrawString(20, 60, "Build stub - boot code not yet executed.", olc::WHITE, 1);
+		DrawString(20, 80, "See SESSION-STATE.md section 1 for next steps.", olc::WHITE, 1);
+		DrawString(20, 110, "ROMs loaded:", olc::GREY, 1);
+		DrawString(20, 125, "  sram.rom  @ $0100  (post-relocation)", olc::GREY, 1);
+		DrawString(20, 140, "  srom.rom  @ $8000  (sideways ROM slot)", olc::GREY, 1);
+		DrawString(20, 170, "Enhanced main_game_loop  = $19DA", olc::GREY, 1);
+		DrawString(20, 185, "Enhanced grid_classify   = $23CB", olc::GREY, 1);
+		return true;
+#endif
 		// Process cheat and debug keys:
 		if (GetKey(olc::K1).bPressed) Game.Cheat_GetAllEquipment();
 		if (GetKey(olc::K2).bPressed) Game.Cheat_StoreAnyObject();
 		if (GetKey(olc::K3).bPressed) bShowDebugGrid = !bShowDebugGrid;
 		if (GetKey(olc::K4).bPressed) bShowDebugOverlay = !bShowDebugOverlay;
+
+		// Z toggles fullscreen (windowed <-> fullscreen). Not used by the game; macOS doesn't intercept.
+		if (GetKey(olc::Key::Z).bPressed) {
+			static bool bIsFullScreen = SCREEN_FULLSCREEN;
+			bIsFullScreen = !bIsFullScreen;
+			if (bIsFullScreen) glutFullScreen();
+			else { glutReshapeWindow((int)SCREEN_WIDTH, (int)SCREEN_HEIGHT); glutPositionWindow(30, 30); }
+		}
 
 		fGlobalTime = +fElapsedTime;
 		nFrameCounter = (nFrameCounter + 1) % 0xFFFF;
@@ -161,15 +214,24 @@ public:
 			bScreenFlash = false;
 
 			Game.BBC.cpu.pc = GAME_RAM_STARTGAMELOOP;
+#ifdef EXILE_VARIANT_SIDEWAYS_RAM
+			// Sideways-RAM: boot code never ran, PC may walk into uninitialised RAM. Cap so window can render.
+			int nCycleSafetyCap = 200000;
 			do {
 				do Game.BBC.cpu.clock();
 				while (!Game.BBC.cpu.complete());
-
-				// Check for special program counters:
-				if (Game.BBC.cpu.pc == GAME_RAM_SCREENFLASH) bScreenFlash = (Game.BBC.cpu.a == 0); // Screen flash if A = 0
-				if (Game.BBC.cpu.pc == GAME_RAM_EARTHQUAKE) nEarthQuakeOffset = (Game.BBC.cpu.a & 1); // Screen shift if A = 1
-
+				if (Game.BBC.cpu.pc == GAME_RAM_SCREENFLASH) bScreenFlash = (Game.BBC.cpu.a == 0);
+				if (Game.BBC.cpu.pc == GAME_RAM_EARTHQUAKE) nEarthQuakeOffset = (Game.BBC.cpu.a & 1);
+				if (--nCycleSafetyCap <= 0) break;
 			} while (Game.BBC.cpu.pc != GAME_RAM_STARTGAMELOOP);
+#else
+			do {
+				do Game.BBC.cpu.clock();
+				while (!Game.BBC.cpu.complete());
+				if (Game.BBC.cpu.pc == GAME_RAM_SCREENFLASH) bScreenFlash = (Game.BBC.cpu.a == 0);
+				if (Game.BBC.cpu.pc == GAME_RAM_EARTHQUAKE) nEarthQuakeOffset = (Game.BBC.cpu.a & 1);
+			} while (Game.BBC.cpu.pc != GAME_RAM_STARTGAMELOOP);
+#endif
 			// O------------------------------------------------------------------------------O
 
 			// O------------------------------------------------------------------------------O

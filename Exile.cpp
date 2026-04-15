@@ -8,6 +8,7 @@
 
 bool Exile::ParseAssemblyLine(std::string sLine) {
 	static uint16_t nRam = 0x00;
+	static std::array<bool,65536> bWritten{}; // first-write-wins to ignore alt/self-mod annotations in newer disassemblies
 
 	// Split line, assuming space delimited
 	std::istringstream iss(sLine);
@@ -18,22 +19,25 @@ bool Exile::ParseAssemblyLine(std::string sLine) {
 			std::string sWord = sLineParsed[nWord];
 			if (sWord == ";" || sWord == "#") nWord = sLineParsed.size(); // Skip line
 			else if (nWord == 0) {
-				if (sWord.length() != 6) nWord = sLineParsed.size(); // Skip line, as first word not length 6
-				else if (sWord.front() != '#' && sWord.front() != '&'); // Skip line, as RAM location needs to start with # or &
+				// Accept either "#XXXX:" (length 6) or "&XXXX" (length 5) as address marker
+				bool bValid = (sWord.length() == 6 || sWord.length() == 5)
+				              && (sWord.front() == '#' || sWord.front() == '&');
+				if (!bValid) { nWord = sLineParsed.size(); }
 				else {
-					// Trim first word, and update RAM counter
+					// Trim leading # or &
 					sWord.erase(0, 1);
-					sWord.erase(4, 1); // 4, as now length 5
-					nRam = std::stoi(sWord, nullptr, 16);
+					// If length is now 5, there's a trailing ':' to strip
+					if (sWord.length() == 5) sWord.erase(4, 1);
+					// Only 4 hex chars should remain
+					if (sWord.length() != 4) { nWord = sLineParsed.size(); }
+					else { try { nRam = std::stoi(sWord, nullptr, 16); } catch (...) { nWord = sLineParsed.size(); } }
 				}
 			}
 			else {
 				if (sWord.length() != 2) nWord = sLineParsed.size(); // Skip line, as reached end of hex
 				else if (sWord == "--") nWord = sLineParsed.size(); // Skip line, as hex not defined
 				else {
-					// Read byte into RAM
-					BBC.ram[nRam] = (uint8_t)std::stoi(sWord, nullptr, 16);
-					nRam++;
+					try { size_t pos=0; int v=std::stoi(sWord,&pos,16); if (pos!=sWord.length()) { nWord=sLineParsed.size(); } else { if (!bFirstWriteWins || !bWritten[nRam]) { BBC.ram[nRam]=(uint8_t)v; bWritten[nRam]=true; } nRam++; } } catch (...) { nWord=sLineParsed.size(); }
 				}
 			}
 		}
@@ -42,7 +46,19 @@ bool Exile::ParseAssemblyLine(std::string sLine) {
 	return true;
 }
 
+bool Exile::LoadExileFromBinary(std::string sFile, uint16_t loadAddr) {
+	std::ifstream f(sFile, std::ios::binary);
+	if (!f.is_open()) { std::cout << "ROM file missing: " << sFile << std::endl; return false; }
+	std::vector<uint8_t> buf((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+	for (size_t i = 0; i < buf.size() && (loadAddr + i) < 0x10000; i++) {
+		BBC.ram[loadAddr + i] = buf[i];
+	}
+	std::cout << "Loaded " << buf.size() << " bytes from " << sFile << " at 0x" << std::hex << loadAddr << std::dec << std::endl;
+	return true;
+}
+
 bool Exile::LoadExileFromDisassembly(std::string sFile) {
+	bFirstWriteWins = true; // enable only for disassembly load — ignores self-mod alt annotations in newer files
 	// Load Exile RAM from disassembly:
 	std::string sLine;
 	std::ifstream fileExileDisassembly(sFile);
@@ -52,7 +68,7 @@ bool Exile::LoadExileFromDisassembly(std::string sFile) {
 
 		while (getline(fileExileDisassembly, sLine))
 		{
-			if ((sLine.substr(0, 5) == "#0100") || bLoadStarted) {
+			if ((sLine.substr(0, 5) == "#0100") || (sLine.substr(0, 5) == "&0100") || bLoadStarted) {
 				bLoadStarted = true;
 				ParseAssemblyLine(sLine);
 			}
@@ -65,16 +81,11 @@ bool Exile::LoadExileFromDisassembly(std::string sFile) {
 		return false;
 	}
 
-	// Patch some minor corrections to disassembly:
-	BBC.ram[0x05D4] = 0x1D; BBC.ram[0x086E] = 0x3C; BBC.ram[0x08A3] = 0x50;	BBC.ram[0x0915] = 0x0F;
-	BBC.ram[0x094E] = 0xFF;	BBC.ram[0x115D] = 0x2F; BBC.ram[0x14B2] = 0xFF;	BBC.ram[0x14B4] = 0x60;
-	BBC.ram[0x215A] = 0x60; BBC.ram[0x2628] = 0xA5; BBC.ram[0x2629] = 0xC0; BBC.ram[0x29F3] = 0x1C;
-	BBC.ram[0x29F4] = 0x22;	BBC.ram[0x29F5] = 0x32; BBC.ram[0x29F6] = 0x38; BBC.ram[0x2D6B] = 0x3D;
-	BBC.ram[0x31D6] = 0xC4; BBC.ram[0x3520] = 0xC2; BBC.ram[0x3E99] = 0x3C; BBC.ram[0x40C1] = 0x57;
-	BBC.ram[0x40C2] = 0x07;	BBC.ram[0x40C3] = 0x43; BBC.ram[0x40C4] = 0xF6; BBC.ram[0x436F] = 0x05;
-	BBC.ram[0x442C] = 0x20; BBC.ram[0x442D] = 0xB9; BBC.ram[0x442E] = 0x4A; BBC.ram[0x492E] = 0x82;
-	BBC.ram[0x492F] = 0xA9; BBC.ram[0x4930] = 0x4B; BBC.ram[0x4E33] = 0x97;
+	// Corrections needed for current level7.org.uk disassembly.
+	BBC.ram[0x34C6] = 0x18; BBC.ram[0x34C7] = 0x18;
+	BBC.ram[0x492E] = 0x82; BBC.ram[0x492F] = 0xA9; BBC.ram[0x4930] = 0x4B;
 
+	bFirstWriteWins = false; // allow PatchExileRAM to overwrite freely
 	return true;
 }
 
@@ -364,11 +375,14 @@ void Exile::PatchExileRAM() {
 	P += "&ff3a: 4c 42 27   JMP 2742        ; JUMP BACK \n";
 
 	// Radius:
-	P += "&1143f: e6 9b     INC & 9b; radius \n"; // Now making it a *larger* radius in x direction, as wider screen:
+	P += "&1143f: e6 9b     INC & 9b; radius \n";
 	P += "& 1145: e6 9b     INC & 9b; radius \n";
 
-	P += "&0c5a: a0 0a      LDY #&0a \n"; // And slightly increasing the radius within which objects are created and destroyed:
+	P += "&0c5a: a0 0a      LDY #&0a \n";
 	P += "#19a7: 0a 0f 0a           ; funny_table_19a7 \n"; 
+
+	// HD code patch at $34C6 (CLC CLC instead of BCS) — required for HD rendering, applied here so it works for both binary and disassembly loaders:
+	BBC.ram[0x34C6] = 0x18; BBC.ram[0x34C7] = 0x18;
 
 	// Turning off BBC sprite/background plotting:
 	P += "&0ca5: 4c c0 0c   JUMP 0cc0 \n"; // Objects
@@ -381,10 +395,10 @@ void Exile::PatchExileRAM() {
 
 void Exile::GenerateBackgroundGrid() {
 	// Inject some dummy code
-	BBC.ram[0xffa0] = 0x20; //JSR #2398
-	BBC.ram[0xffa1] = 0x98;
-	BBC.ram[0xffa2] = 0x23;
-	BBC.ram[0xffa3] = 0xa8; //TAY 
+	BBC.ram[0xffa0] = 0x20; // JSR <grid_classify_routine>
+	BBC.ram[0xffa1] = (uint8_t)(GAME_RAM_GRID_CLASSIFY & 0xFF);
+	BBC.ram[0xffa2] = (uint8_t)(GAME_RAM_GRID_CLASSIFY >> 8);
+	BBC.ram[0xffa3] = 0xa8; // TAY
 
 	for (int y = 0; y < 256; y++) {
 		for (int x = 0; x < 256; x++) {
@@ -398,10 +412,20 @@ void Exile::GenerateBackgroundGrid() {
 			BBC.ram[0x0097] = y; //square_y
 
 			// Run BBC to determine background tile and palette
+			uint64_t nGuard = 0;
+			bool bHung = false;
 			do {
 				do BBC.cpu.clock();
 				while (!BBC.cpu.complete());
+				if (++nGuard > 1000000ULL) {
+					std::cout << "HANG at y=" << std::hex << y << " x=" << x
+					          << " pc=" << BBC.cpu.pc << std::dec << std::endl;
+					std::cout.flush();
+					bHung = true;
+					break;
+				}
 			} while (BBC.cpu.pc != 0xffa3);
+			if (bHung) return;
 
 			TileGrid[x][y].TileID = BBC.ram[0x08]; // square_sprite
 			TileGrid[x][y].Orientation = BBC.ram[0x09]; // square_orientation
@@ -422,7 +446,20 @@ void Exile::GenerateBackgroundGrid() {
 				TileGrid[x][y].TileID = GAME_TILE_BLANK; // 0x19 = blank tile
 			}
 		}
+		if ((y & 0x0f) == 0) { std::cout << "grid y=0x" << std::hex << y << std::dec << std::endl; std::cout.flush(); }
 	}
+}
+
+void Exile::RestoreOldBytesInRange(uint16_t lo, uint16_t hi) {
+	std::ifstream f("diff_old_bytes.txt");
+	if (!f.is_open()) { std::cout << "diff_old_bytes.txt missing\n"; return; }
+	std::string addrs, vals; int count = 0;
+	while (f >> addrs >> vals) {
+		uint32_t a = std::stoul(addrs, nullptr, 16);
+		uint32_t v = std::stoul(vals, nullptr, 16);
+		if (a >= lo && a < hi) { BBC.ram[a] = (uint8_t)v; count++; }
+	}
+	std::cout << "restored " << count << " bytes in [" << std::hex << lo << "," << hi << ")" << std::dec << std::endl;
 }
 
 void Exile::GenerateSpriteSheet() {

@@ -152,7 +152,7 @@
 
 	Author
 	~~~~~~
-	David Barr, aka javidx9, ©OneLoneCoder 2018, 2019, 2020
+	David Barr, aka javidx9, ï¿½OneLoneCoder 2018, 2019, 2020
 
 	2.01: Made renderer and platform static for multifile projects
 	2.02: Added Decal destructor, optimised Pixel constructor
@@ -4185,6 +4185,11 @@ namespace olc {
 			mapKeys[9] = Key::TAB;  mapKeys[GLUT_KEY_HOME] = Key::HOME;
 			mapKeys[GLUT_KEY_END] = Key::END; mapKeys[GLUT_KEY_PAGE_UP] = Key::PGUP; mapKeys[GLUT_KEY_PAGE_DOWN] = Key::PGDN;    mapKeys[GLUT_KEY_INSERT] = Key::INS;
 			mapKeys[32] = Key::SPACE; mapKeys[46] = Key::PERIOD;
+			mapKeys[44] = Key::COMMA; mapKeys[47] = Key::OEM_2 /* '/' */;
+			mapKeys[91] = Key::OEM_4 /* '[' */; mapKeys[93] = Key::OEM_6 /* ']' */;
+			mapKeys[59] = Key::OEM_1 /* ';' */; mapKeys[39] = Key::OEM_7 /* '\'' */;
+			mapKeys[45] = Key::MINUS; mapKeys[61] = Key::EQUALS;
+			mapKeys[64] = Key::OEM_4; // '@' on UK keyboard maps to '[' slot used by the game
 
 			mapKeys[48] = Key::K0; mapKeys[49] = Key::K1; mapKeys[50] = Key::K2; mapKeys[51] = Key::K3; mapKeys[52] = Key::K4;
 			mapKeys[53] = Key::K5; mapKeys[54] = Key::K6; mapKeys[55] = Key::K7; mapKeys[56] = Key::K8; mapKeys[57] = Key::K9;
@@ -4276,6 +4281,20 @@ namespace olc {
 
 			glutDisplayFunc(DrawFunct);
 			glutIdleFunc(ThreadFunct);
+
+			// Re-scale viewport so the canvas fills the whole window on resize / fullscreen / zoom.
+			glutReshapeFunc([](int w, int h) -> void {
+				if (ptrPGE == nullptr) return;
+				ptrPGE->olc_UpdateWindowSize(w, h);
+				olc::vi2d screen = ptrPGE->GetScreenPixelSize();
+				if (screen.x <= 0 || screen.y <= 0) { glViewport(0, 0, w, h); return; }
+				float ar = (float)screen.x / (float)screen.y;
+				int vw = w, vh = (int)(w / ar);
+				if (vh > h) { vh = h; vw = (int)(h * ar); }
+				int vx = (w - vw) / 2;
+				int vy = (h - vh) / 2;
+				glViewport(vx, vy, vw, vh);
+			});
 
 			return olc::OK;
 		}

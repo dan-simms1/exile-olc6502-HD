@@ -1,10 +1,21 @@
-exile-disassembly.txt
-exile
-Release/*
-Debug/*
-.vs/*
-*.sln
-*.vcxproj
-*.filters
-*.user
+# Build artifacts
 *.o
+exile
+exile-sideways
+exile-standard
+Exile.app/Contents/MacOS/exile*
+Exile.app/Contents/_CodeSignature/
+Exile-Sideways.app/Contents/MacOS/Exile-Sideways*
+Exile-Sideways.app/Contents/_CodeSignature/
+
+# Large diagnostic / downloaded files
+exile-disassembly-2019.txt
+exile-disassembly-new.txt
+exile-enhanced.txt
+diff_old_bytes.txt
+
+# Working disassembly file (regenerated at build time)
+exile-disassembly.txt
+
+# macOS
+.DS_Store
