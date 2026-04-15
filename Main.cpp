@@ -216,10 +216,10 @@ public:
 
 			Game.BBC.cpu.pc = GAME_RAM_STARTGAMELOOP;
 #ifdef EXILE_VARIANT_SIDEWAYS_RAM
-			// Vsync trap is in olc6502.cpp (PC=$1F99 force-Carry). Frame 1 completes in ~13k
-			// instructions; frames 2+ currently hang because state after frame 1 isn't coherent
-			// for the next frame. Cap per frame to keep the GLUT event pump responsive.
-			int nCycleSafetyCap = 20000;
+			// Frames now complete naturally back to $19DA (vsync trap at $1F99 in olc6502
+			// lets the wait_for_vsync loop exit). A generous cap (1M) is kept purely as a
+			// safety net in case a frame ever hangs — normal frames take well under 100k instr.
+			int nCycleSafetyCap = 1000000;
 			do {
 				do Game.BBC.cpu.clock();
 				while (!Game.BBC.cpu.complete());
