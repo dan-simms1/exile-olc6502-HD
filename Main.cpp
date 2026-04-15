@@ -132,7 +132,9 @@ public:
 		//   SINIT/SINIT2 are boot routines; we pre-place memory directly so they aren't executed.
 		Game.BBC.bSidewaysPaging = true;
 		Game.BBC.activeBank = 0;
-		Game.LoadExileFromBinary("sram.rom", 0x0100);
+		Game.LoadExileFromBinary("sram.rom",   0x0100);   // main code/data
+		Game.LoadExileFromBinary("sinit.rom",  0x7690);   // boot init (loaded, not executed — same as how standard loads bintro.rom but never runs it)
+		Game.LoadExileFromBinary("sinit2.rom", 0x6489);   // boot init 2 (data bytes at $6489-$6494 + code at $6495)
 		Game.LoadExileFromBinaryToBank("srom.rom", /*bank=*/0, /*offsetInBank=*/0x99EC - 0x8000);
 
 		// SRAM overlaps the 6502 stack page ($0100-$01FF). Its contents there are initial-data
