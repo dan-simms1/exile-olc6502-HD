@@ -218,11 +218,12 @@ public:
 
 			Game.BBC.cpu.pc = GAME_RAM_STARTGAMELOOP;
 #ifdef EXILE_VARIANT_SIDEWAYS_RAM
-			// Reverted the vsync / IRQ fakes — with them the game reached end-of-frame code
-			// that corrupted rendering. Without them the game halts at wait_for_vsync ($1F93)
-			// which lets the last-valid state stay on screen until we find a cleaner fix.
+			// No VSYNC fake: letting the game pass wait_for_vsync ($1F93) sends execution
+			// into OS ROM addresses ($Fxxx) which we don't emulate — renders degrade to a
+			// two-tone blue/black frame. Without the fake the game freezes at $1F93 but
+			// stale memory still shows the ship/cave/particles.
 			// Safety-cap protects the UI when the game loop never reaches $19DA.
-			int nCycleSafetyCap = 5000000;   // 5M — lets a full enhanced frame complete naturally
+			int nCycleSafetyCap = 5000000;   // 5M — covers a full enhanced frame if it ever completes
 			int nCapStart = nCycleSafetyCap;
 			do {
 				uint16_t prevPc = Game.BBC.cpu.pc;
