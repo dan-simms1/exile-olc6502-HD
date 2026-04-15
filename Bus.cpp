@@ -4,7 +4,10 @@ Bus::Bus()
 {
 	// Clear RAM contents
 	for (auto& i : ram) i = 0x00;
-	for (auto& bank : sidewaysBanks) for (auto& b : bank) b = 0x00;
+	// Match real hardware: an empty sideways slot reads as 0xFF (pulled-high data bus on
+	// an unoccupied ROM socket). If this is left as 0x00 any stray read here decodes as BRK
+	// and spirals via an all-zero IRQ vector.
+	for (auto& bank : sidewaysBanks) for (auto& b : bank) b = 0xFF;
 	activeBank = 0;
 
 	// Connect CPU to communication bus

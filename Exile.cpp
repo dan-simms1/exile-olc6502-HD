@@ -416,8 +416,16 @@ void Exile::GenerateBackgroundGrid() {
 	BBC.ram[0xffa2] = (uint8_t)(GAME_RAM_GRID_CLASSIFY >> 8);
 	BBC.ram[0xffa3] = 0xa8; // TAY
 
+	// Snapshot zero-page once so every iteration starts from a known clean state —
+	// otherwise each classify's scratch writes accumulate and corrupt later iterations.
+	uint8_t zpPerIter[256];
+	for (int i = 0; i < 256; i++) zpPerIter[i] = BBC.ram[i];
+
 	for (int y = 0; y < 256; y++) {
 		for (int x = 0; x < 256; x++) {
+
+			// Restore zero-page to pristine state before each classify call.
+			for (int i = 0; i < 256; i++) BBC.ram[i] = zpPerIter[i];
 
 			// Set stack pointer and PC:
 			BBC.cpu.a = 0x00; BBC.cpu.x = 0x00; BBC.cpu.y = 0x00;
@@ -434,14 +442,12 @@ void Exile::GenerateBackgroundGrid() {
 				do BBC.cpu.clock();
 				while (!BBC.cpu.complete());
 				if (++nGuard > 1000000ULL) {
-					std::cout << "HANG at y=" << std::hex << y << " x=" << x
-					          << " pc=" << BBC.cpu.pc << std::dec << std::endl;
-					std::cout.flush();
+					// Skip this tile — leave its TileGrid entry as it was before
 					bHung = true;
 					break;
 				}
 			} while (BBC.cpu.pc != 0xffa3);
-			if (bHung) return;
+			if (bHung) continue;
 
 			TileGrid[x][y].TileID = BBC.ram[0x08]; // square_sprite
 			TileGrid[x][y].Orientation = BBC.ram[0x09]; // square_orientation
@@ -661,7 +667,13 @@ void Exile::DrawExileSprite(olc::PixelGameEngine* PGE,
 void Exile::Initialise()
 {
 	GenerateSpriteSheet();
+
+	// Snapshot & restore zero-page around the grid gen so the classify's scratch writes
+	// don't corrupt the live game state carried over from the boot snapshot.
+	uint8_t zpSave[256];
+	for (int i = 0; i < 256; i++) zpSave[i] = BBC.ram[i];
 	GenerateBackgroundGrid();
+	for (int i = 0; i < 256; i++) BBC.ram[i] = zpSave[i];
 
 	BBC.cpu.stkp = 0xff;
 	BBC.cpu.pc = GAME_RAM_STARTGAMELOOP;

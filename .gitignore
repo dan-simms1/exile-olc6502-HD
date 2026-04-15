@@ -19,3 +19,7 @@ exile-disassembly.txt
 
 # macOS
 .DS_Store
+# jsbeeb bank bins (unused — game state is in main-RAM snapshot only)
+snapshot_bank*.bin
+snapshot_cpu.txt
+snapshot_main.bin

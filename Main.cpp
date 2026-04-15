@@ -124,25 +124,27 @@ public:
 		// Load Exile RAM from authoritative ROM (built from Tom Seddon's BeebAsm disassembly).
 		// Choose at compile time between BBC Micro standard and sideways-RAM (BBC Master) variants.
 #ifdef EXILE_VARIANT_SIDEWAYS_RAM
-		// Sideways RAM (Master) layout, AFTER boot-time relocation:
-		//   SRAM is assembled to run at $0100 (the .lea load=$1200 is the BBC's pre-relocation address).
-		//   SROM is sideways-ROM content; on real hardware it pages into $8000-$BFFF. Enable the
-		//   Bus's paged-ROM emulation (ROMSEL $FE30) and load SROM into sideways bank 0, at the
-		//   offset the game expects ($99EC -> $8000 + $19EC within the bank).
-		//   SINIT/SINIT2 are boot routines; we pre-place memory directly so they aren't executed.
-		Game.BBC.bSidewaysPaging = true;
-		Game.BBC.activeBank = 0;
-		Game.LoadExileFromBinary("sram.rom", 0x0100);
-		Game.LoadExileFromBinaryToBank("srom.rom", /*bank=*/0, /*offsetInBank=*/0x99EC - 0x8000);
-		// SRAM overlaps the 6502 stack page ($0100-$01FF). Its contents there are initial-data
-		// that the BBC boot code would have copied to a safe location before handing control
-		// to the game. We bypass boot, so zero the stack page — any RTS must then pop addresses
-		// the game itself pushed, not leftover boot data.
-		for (uint16_t a = 0x0100; a <= 0x01FF; a++) Game.BBC.ram[a] = 0x00;
+		// Sideways-RAM (BBC Master) variant: load a 64 KB post-boot RAM snapshot captured from
+		// a real BBC Master emulator (jsbeeb) after the enhanced game has started. This skips
+		// SINIT/SINIT2/SROM migration entirely — the captured state already has everything
+		// in its final location. Empirically, all enhanced-game code and data ends up in
+		// main RAM $0100-$7FFF; sideways RAM banks are empty post-boot on Master (only used
+		// as scratch space for sound samples during playback).
+		Game.BBC.bSidewaysPaging = true;   // enable ROMSEL/$FE30 emulation for any runtime use
+		Game.BBC.activeBank = 7;           // jsbeeb snapshot had bank 7 paged in
+		Game.LoadExileFromBinary("snapshot_main.rom", 0x0000);
+
+		// The jsbeeb snapshot stores 0 at $FFFE/$FFFF because the MOS ROM lives outside the
+		// 128 KB dump. Without a valid IRQ/BRK vector any stray BRK jumps to PC=0 and we
+		// spin forever. Plant an RTI at $FFF0 and point the IRQ/BRK + NMI vectors at it.
+		Game.BBC.ram[0xFFF0] = 0x40;             // RTI
+		Game.BBC.ram[0xFFFA] = 0xF0; Game.BBC.ram[0xFFFB] = 0xFF;   // NMI vector -> $FFF0
+		Game.BBC.ram[0xFFFC] = 0xF0; Game.BBC.ram[0xFFFD] = 0xFF;   // RESET vector
+		Game.BBC.ram[0xFFFE] = 0xF0; Game.BBC.ram[0xFFFF] = 0xFF;   // IRQ/BRK vector
+
 		// Turn off BBC's native sprite/background plotter so PGE draws instead.
-		// (Sprite plotting addresses $0CA5, $10D2 are identical in standard and enhanced ROMs.)
-		Game.BBC.ram[0x0CA5] = 0x4C; Game.BBC.ram[0x0CA6] = 0xC0; Game.BBC.ram[0x0CA7] = 0x0C; // JMP $0CC0 — skip object plotter
-		Game.BBC.ram[0x10D2] = 0x4C; Game.BBC.ram[0x10D3] = 0xED; Game.BBC.ram[0x10D4] = 0x10; // JMP $10ED — skip background strip plotter
+		Game.BBC.ram[0x0CA5] = 0x4C; Game.BBC.ram[0x0CA6] = 0xC0; Game.BBC.ram[0x0CA7] = 0x0C;
+		Game.BBC.ram[0x10D2] = 0x4C; Game.BBC.ram[0x10D3] = 0xED; Game.BBC.ram[0x10D4] = 0x10;
 #else
 		// BBC Micro standard layout: BMAIN $0100-$60FF (post-relocation), BINTRO at $7200.
 		Game.LoadExileFromBinary("bmain.rom",  0x0100);

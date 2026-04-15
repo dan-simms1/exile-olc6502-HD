@@ -4282,19 +4282,9 @@ namespace olc {
 			glutDisplayFunc(DrawFunct);
 			glutIdleFunc(ThreadFunct);
 
-			// Re-scale viewport so the canvas fills the whole window on resize / fullscreen / zoom.
-			glutReshapeFunc([](int w, int h) -> void {
-				if (ptrPGE == nullptr) return;
-				ptrPGE->olc_UpdateWindowSize(w, h);
-				olc::vi2d screen = ptrPGE->GetScreenPixelSize();
-				if (screen.x <= 0 || screen.y <= 0) { glViewport(0, 0, w, h); return; }
-				float ar = (float)screen.x / (float)screen.y;
-				int vw = w, vh = (int)(w / ar);
-				if (vh > h) { vh = h; vw = (int)(h * ar); }
-				int vx = (w - vw) / 2;
-				int vy = (h - vh) / 2;
-				glViewport(vx, vy, vw, vh);
-			});
+			// (Removed a custom glutReshapeFunc that tried to letterbox — it also fired with
+			//  bad initial sizes during window creation and compressed the canvas on some
+			//  window sizes. Fall back to GLUT's default behaviour: viewport = full window.)
 
 			return olc::OK;
 		}
