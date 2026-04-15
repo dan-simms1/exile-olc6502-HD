@@ -45,22 +45,28 @@ cd "/Users/dansimms/Documents/C++ Exile/exile-olc6502-HD"
 Loads `bmain.rom` + `bintro.rom` (Tom Seddon's authoritative ROMs) and applies HD patches. Tested visually — horizontal door present, game playable.
 
 ```bash
-./exile-sideways  # BBC Master sideways-RAM. Renders some game elements from jsbeeb snapshot.
-                  # Game freezes at wait_for_vsync ($1F93) — last-valid state stays on screen.
+./exile-sideways  # BBC Master sideways-RAM. FULLY PLAYABLE (April 2026).
 ```
 
-**Where sideways got to in this session (April 2026):**
-1. Load 64 KB post-boot RAM snapshot captured from jsbeeb (`snapshot_main.rom`) instead of trying to reproduce SINIT/SINIT2. snapshot_main.rom is committed in the repo.
-2. Initialise sideways-RAM banks to `0xFF` in `Bus::Bus()` (matches real empty ROM sockets); without this, stray reads returned 0x00 = BRK and spiralled PC → 0.
-3. Patch `$FFFE/FFFF` / `$FFFA/B` / `$FFFC/D` → `$FFF0` which holds an RTI. Any stray BRK returns cleanly.
-4. Snapshot-and-restore zero-page around `GenerateBackgroundGrid` AND per tile iteration (enhanced classify at `$23CB` writes scratch to ZP that corrupts live game state). Hung tiles `continue` instead of aborting the whole grid.
-5. Made object/particle/particle-count addresses variant-switchable in `Exile.h`:
-   - `OS_TYPE/SPRITE/X_LOW/X/Y_LOW/Y/FLAGS/PALETTE/TIMER` — sideways uses un-relocated `$0860+` (because we don't run `PatchExileRAM`), standard uses relocated `$9600+`.
-   - `PS_X_LOW/X/Y_LOW/Y/TYPE` + `PS_STRIDE` — sideways is interleaved `$2907 + N*8`, standard is `$8800 + N` after HD relocation.
-   - `GAME_RAM_PARTICLE_COUNT` — `$1E8B` (sideways) vs `$1E58` (standard HD-relocated).
-   - `Exile::Particle()` now scales by `PS_STRIDE`, `Exile::Object()` uses `OS_*` constants. Same code compiles both variants.
+**Enhanced (sideways) status: FULLY PLAYABLE.** Loads clean BeebAsm-built ROMs (no jsbeeb snapshot needed). Game runs at 50fps with correct graphics, objects, and scrolling. Known cosmetic issue: stars don't fill the whole HD-wide screen (enhanced's native star code at `$26F7+` is designed for the narrower BBC Master screen; HD standard has a widescreen-star patch at `$26C8` but enhanced has different code there so the standard patch can't be ported verbatim).
 
-**Current state (as of session end):** game renders the player ship but tiles look wrong. Freezes at `wait_for_vsync` `$1F93` because we don't emulate VSYNC IRQ. Attempting to fake vsync by poking `$11DC = 2` OR triggering `cpu.irq()` caused visible regression (end-of-frame code corrupts rendering); reverted. Safety cap of 5M instructions prevents UI hang.
+**Key insights this session that unlocked it:**
+
+1. **olc6502.cpp's `ReloactedStackAddress` was firing for sideways** — transparently remapping every `$0860-$0976` object-stack access to `$96xx` via the runtime addressing-mode hook. Since enhanced keeps its stacks at the original `$0860` and we don't run `PatchExileRAM`, `$96xx` was unpopulated zeros, so every object read returned zero. Fixed by gating the switch behind `#ifdef EXILE_VARIANT_SIDEWAYS_RAM`.
+
+2. **Main.cpp was zeroing `$0100-$01FF`** on sideways init — this wiped out real game code (`$01A8 process_actions` called from bank 0, `$01D0 wipe_screen_and_start_game`). Without those routines the CPU walked through zero bytes until hitting SINIT2's decrypt loop at `$64DF` and looped forever. Stopped zeroing; on real BBC the stack page coexists with loaded code because the game keeps its stack shallow.
+
+3. **`DetermineBackground` didn't save/restore ZP** — each per-frame classify call scribbled ZP as scratch, corrupting the game's live ZP state. Added ZP snapshot/restore around the call. Also fixed a `y_ = BBC.cpu.x` typo that was clobbering the Y register on restore.
+
+4. **Vsync trap at `$1F99`** (enhanced wait_for_vsync) in `olc6502.cpp`, gated with `#ifdef`. Mirrors the existing `$1F66` trap for standard — force the BCC not-taken by setting Carry = 1 on fetch.
+
+5. **Added BCD (decimal-mode) support to `ADC`/`SBC`** — not strictly needed for display, but SINIT2's game-state decrypt uses it.
+
+6. **Main.cpp's object draw loop was iterating 128** (HD's expanded slot count for standard) — for sideways we only have 16 slots at `$0860`, so reading `OS_TYPE[16..127]` crossed into `OS_SPRITE`/etc. causing 112 garbage sprites to be drawn every frame. Added `OBJECT_SLOTS` variant constant.
+
+7. **All 4 ROMs loaded** (`sram.rom`, `srom.rom`, `sinit.rom`, `sinit2.rom`) at their assembled addresses — mirrors how standard loads `bmain.rom` + `bintro.rom`. SINIT/SINIT2 are loaded but never executed.
+
+**`PatchEnhancedExileRAM()`** is the peer of `PatchExileRAM` and applies 4 portable HD patches: `$0CA5/$10D2` (plot-off, same address both ROMs), `$0C5B` (HD LDY tweak), `$352D` (enhanced equivalent of standard's `$34C6` sprite-too-tall BCS→CLC CLC), plus IRQ-vector fakes.
 
 **Fresh reviewer: the thing to verify first on a new machine** is whether the sideways binary's baked-in addresses match the `EXILE_VARIANT_SIDEWAYS_RAM` define. Our worst debugging hour came from `Exile.o` being stale from a previous non-sideways build; the binary had `0x9600` (standard) baked in even though `Exile.h`'s ifdef said `0x0860`. Sanity check:
 ```bash
