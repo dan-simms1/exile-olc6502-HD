@@ -309,10 +309,6 @@ public:
 				if (Game.BBC.cpu.pc == SAMPLE_TRAP_SCREAM)         Samples.Play(1 + (rand() & 3));
 				if (Game.BBC.cpu.pc == SAMPLE_TRAP_HOVERING_ROBOT) Samples.Play(6);
 				if (Game.BBC.cpu.pc == SAMPLE_TRAP_CLAWED_ROBOT)   Samples.Play(5);
-				// BBC sound trap disabled — heuristic synthesis sounded wrong.
-				// Re-enable once we have real envelope decoding or sampled
-				// BBC sound effects. See DispatchPlaySound() in this file.
-				//if (Game.BBC.cpu.pc == SOUND_TRAP_PLAY_SOUND)    DispatchPlaySound();
 				if (--nCycleSafetyCap <= 0) break;
 			} while (Game.BBC.cpu.pc != GAME_RAM_STARTGAMELOOP);
 #else
@@ -324,9 +320,34 @@ public:
 				if (Game.BBC.cpu.pc == SAMPLE_TRAP_SCREAM)         Samples.Play(1 + (rand() & 3));
 				if (Game.BBC.cpu.pc == SAMPLE_TRAP_HOVERING_ROBOT) Samples.Play(6);
 				if (Game.BBC.cpu.pc == SAMPLE_TRAP_CLAWED_ROBOT)   Samples.Play(5);
-				//if (Game.BBC.cpu.pc == SOUND_TRAP_PLAY_SOUND)    DispatchPlaySound();
 			} while (Game.BBC.cpu.pc != GAME_RAM_STARTGAMELOOP);
 #endif
+
+			// Fake IRQ once per game frame so the BBC's sound-update code
+			// (which lives inside the IRQ handler at $12A6 → $1320 sound block)
+			// actually runs. Real BBC fires this from a System VIA timer at 50 Hz.
+			// Without it, push_sound_to_chip never executes and the SN76489
+			// emulator stays silent — even though play_sound calls succeed and
+			// fill in sound_channels_*.
+			//
+			// IRQ1V at $0204 already points to $12A6 (set by bmain.rom).
+			// Set $FE4D bit 7 (so handler's BPL fails) with bit 6 clear (so its
+			// BVC takes the branch to the sound-update path). Save A in $FC
+			// because leave_interrupt does LDA $FC before RTI. Clear I so
+			// olc6502::irq() will actually fire.
+			{
+				uint16_t pcSave = Game.BBC.cpu.pc;
+				Game.BBC.ram[0x00FC] = Game.BBC.cpu.a;
+				Game.BBC.ram[0xFE4D] = 0x80;
+				Game.BBC.cpu.status &= ~olc6502::I;  // ensure I clear so irq() fires
+				Game.BBC.cpu.irq();
+				int nIrqCap = 200000;
+				do {
+					do Game.BBC.cpu.clock();
+					while (!Game.BBC.cpu.complete());
+					if (--nIrqCap <= 0) break;
+				} while (Game.BBC.cpu.pc != pcSave);
+			}
 			// O------------------------------------------------------------------------------O
 
 			// O------------------------------------------------------------------------------O
