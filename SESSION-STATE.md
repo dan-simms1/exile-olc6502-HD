@@ -1,6 +1,66 @@
 # Session State — Resume Here
 
-Snapshot for picking up exile-olc6502-HD work in a fresh Claude session.
+Snapshot for picking up exile-olc6502-HD work in a fresh Claude session (or different computer).
+
+## Where we are — 2026-04-16 late session
+
+**Just completed: SN76489 thud fix.** Thuds were caused by a DC step: my unipolar-to-bipolar mapping `(sample - 0.5f) * 32767.0f` left silence at -16383 DC and active sound averaging around -10000. When sound ended, output snapped from -10000 back to -16383 → audible ~6k DC step = thud.
+
+Fix (commit 4a28970): per-channel natively bipolar mix. Each channel now contributes `(outputBit - 0.5f) × mVolumeLut[vol]` = `±0.5 × vol`. DC of each channel is always zero regardless of outputBit, so silence is exactly 0, active channels oscillate around 0, and no DC step occurs.
+
+**Debug tooling kept:** SN76489.cpp has compile-time flag `SN76489_DEBUG` (default 0). Set to 1 to dump every chip write + every render-buffer peak/min/max to /tmp/sn76489.log. Useful if more thud-like symptoms appear. Analysis template:
+```bash
+rm -f /tmp/sn76489.log
+# rebuild with -DSN76489_DEBUG=1 in CXXFLAGS
+./exile-standard  # for ~15s
+# Any buffer with max > 0 is a NORMAL bipolar peak. Any 'IMPOSSIBLE' line is a bug.
+# Look for large p2p swings that coincide with audible thuds.
+```
+
+**User-perceived remaining sound issues (as of 4a28970):**
+- "Sound when Triax picks up destinator that I can't hear in the original" — traced to `absorb_object` at `$3BE1` calling `play_low_beep` at `$14AD` (`5d 04 ff 05`). This IS real BBC behavior; our rendering makes it sound different enough to seem extra. Not a bug per se — an envelope-rendering subtlety.
+- "Teleport sound has a screech in the middle that isn't there on emulator" — `play_sound_for_teleporting` at `$A0AA` renders with slightly different pitch curve than real hardware. Same class of issue.
+- We agreed: STOP tuning by ear. Further fix requires capturing 30 s of jsbeeb/beebem audio for the same scene and FFT-comparing against our output. Until then, sound is "good enough".
+
+**Sound fixes that ARE in (commit chain Aug 2026):**
+- SN76489 chip line-for-line matches jsbeeb `generate()` — fractional Float64 counter at output sample rate, unipolar bit×vol, jsbeeb volume table `pow(10, -0.1*i) / 4`, LFSR taps bit 0 XOR 1, divider-0 → 1024, LFSR reset on every noise write.
+- Internal counter tick = 250 kHz (jsbeeb's `waveDecrementPerSecond`).
+- Output 44100 Hz int16 mono, 3 buffers × 512 frames = ~35 ms latency.
+- Per-channel natively bipolar mix (NO DC blocker, NO post-gain) — see above.
+- Fake-IRQ scheduler (top of OnUserUpdate) fires at 50 Hz real wall-clock — matches real BBC's actual sound-update rate. Critical finding: IRQ handler `$12A6` does `BVC $12C8`; timer-1 (water-level palette) IRQ exits early via `$12C5 → $1392`, only VSync IRQ (V=0) falls through to sound block at `$1320`. So real sound runs 50 Hz, NOT 100 Hz.
+- Voice samples attenuated via AudioQueueSetParameter Volume=0.4 to match chip loudness.
+- Sample-trap PCs (`$2497` scream / `$480E` hovering robot / `$4858` clawed robot) skip past the 6502's own play_sound to avoid duplicate BBC overlay. See `SAMPLE_TRAP_*_SKIP_TO` constants in Exile.h.
+
+## What's NEXT — Mode A implementation (just starting)
+
+**Plan (from user's earlier brief):**
+- Mode A: pure standard BBC game. `bmain.rom` only, NO HD patches (no `$0CA5/$10D2` plotter bypass, no 128-slot expand, no widescreen stars), BBC-native Mode 1 framebuffer renderer, BBC sound (SN76489 emulator already working), no voice samples.
+- Mode B: standard game + enhanced renderer grafted in from SROM, 16-slot objects, BBC sound + voice samples.
+- Mode C: what we have today — standard + C++ HD renderer + all patches + voice samples.
+
+**Immediate tasks (in order):**
+1. Add `--mode A|B|C` arg parsing in `int main()` (Main.cpp line 643). Store in a global/static.
+2. Conditionally call `Game.PatchExileRAM()` — skip for Mode A.
+3. Add a BBC Mode 1 framebuffer renderer: read `$3000-$7FFF` (20 KB), decode Mode 1 layout (40 chars × 32 rows × 8 scanlines, 2 bpp, 4 colours), draw to PGE.
+4. Track writes to Video ULA palette register `$FE21` in Bus.cpp to maintain the 16-entry logical palette for rendering.
+5. Switch in OnUserUpdate: if Mode A, draw from framebuffer; else draw HD from game state (current behavior).
+6. Mode B later — needs grafting SROM renderer code into bmain flow.
+
+**BBC Mode 1 framebuffer layout (for renderer):**
+- 320×256 pixels, 4 colours, 2 bits per pixel
+- Screen at `$3000` (default); 8 bytes per 8-pixel-high char cell in column-major within char, row-major across chars
+- Byte format: 8 pixels packed as `P0_hi P0_lo P1_hi P1_lo ...` — but Mode 1 packs 4 pixels per byte (not 8), with interleaved bits: `a0 b0 a1 b1 a2 b2 a3 b3` where `ai`/`bi` are the colour bits of pixel i
+- Logical-to-physical colour: `$FE21` writes set an entry of the palette table; logical colour 0-3 maps to physical 0-7
+
+**Files to touch for Mode A:**
+- Main.cpp: arg parse, mode-conditional patch call, mode-conditional renderer
+- Bus.cpp / Bus.h: intercept `$FE21` palette writes (store to a palette[16] array)
+- New file possibly: `BbcRenderer.{h,cpp}` — Mode 1 framebuffer → PGE pixel blit
+
+**Why Mode A is meaningful:**
+User wants to offer three distinct experiences: vanilla BBC look (Mode A), enhanced BBC look (Mode B), HD (Mode C). Mode A is the simplest to start with — just stop doing HD things and let the original BBC code render.
+
+---
 
 ## End-game ship fly-away (TGD's README note) — investigation
 
