@@ -323,19 +323,19 @@ public:
 			} while (Game.BBC.cpu.pc != GAME_RAM_STARTGAMELOOP);
 #endif
 
-			// Fake IRQ a few times per game frame so the BBC's sound-update
-			// code (inside IRQ handler at $12A6 → $1320 sound block) actually runs.
-			// Real BBC fires this twice per VSync via System VIA Timer 1 (palette
-			// swap at water-level + remainder of frame) → ~100 Hz envelope advance.
-			// Our game loop runs ~40 Hz so we fire 3× per tick to land in
-			// roughly the same ballpark.
+			// Fake IRQ twice per game frame so the BBC's sound-update code
+			// (inside IRQ handler at $12A6 → $1320 sound block) actually runs.
+			// Real BBC fires this twice per VSync via System VIA Timer 1 — the
+			// palette swap at water-level then the remainder of the frame.
+			// Two IRQs per tick matches that pattern; 3 sped envelopes up too
+			// much (sound effects finished noticeably quicker than real BBC).
 			//
 			// IRQ1V at $0204 already points to $12A6 (set by bmain.rom).
 			// Set $FE4D bit 7 (so handler's BPL fails) with bit 6 clear (so its
 			// BVC takes the branch to the sound-update path). Save A in $FC
 			// because leave_interrupt does LDA $FC before RTI. Clear I so
 			// olc6502::irq() will actually fire.
-			for (int nIrqTick = 0; nIrqTick < 3; ++nIrqTick) {
+			for (int nIrqTick = 0; nIrqTick < 2; ++nIrqTick) {
 				uint16_t pcSave = Game.BBC.cpu.pc;
 				Game.BBC.ram[0x00FC] = Game.BBC.cpu.a;
 				Game.BBC.ram[0xFE4D] = 0x80;
