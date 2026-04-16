@@ -97,16 +97,12 @@ void SN76489::Render(int16_t* out, int numSamples) {
     std::lock_guard<std::mutex> lk(mMutex);
 
     for (int i = 0; i < numSamples; ++i) {
-        // Center each channel's output around zero BEFORE mixing.
-        // outputBit ∈ {0,1}; (outputBit - 0.5) ∈ {-0.5, +0.5}; times vol
-        // gives a naturally bipolar square wave per channel with no DC
-        // component. Sum is already bipolar — no DC blocker needed, no
-        // transient ringing on volume changes, no thud when sounds end.
         float sample = 0.0f;
 
+        // Three tone channels.
         for (int c = 0; c < 3; ++c) {
             DoChannelStep(c, mCh[c].divider);
-            sample += ((float)mCh[c].outputBit - 0.5f) * mVolumeLut[mCh[c].volume];
+            sample += (float)mCh[c].outputBit * mVolumeLut[mCh[c].volume];
         }
 
         // Noise channel — addAmount picks rate or borrows tone-2 divider.
@@ -118,13 +114,14 @@ void SN76489::Render(int16_t* out, int numSamples) {
             default: noiseAdd = mCh[2].divider; break;
         }
         if (DoChannelStep(3, noiseAdd)) {
+            // Toggled this sample → shift LFSR
             ShiftLfsr();
         }
-        sample += ((float)(mNoiseLfsr & 1) - 0.5f) * mVolumeLut[mCh[3].volume];
+        sample += (float)(mNoiseLfsr & 1) * mVolumeLut[mCh[3].volume];
 
-        // sample is naturally bipolar around 0. Per-channel peak ±0.125;
-        // 4-channel peak ±0.5. Scale to int16.
-        int32_t s = (int32_t)(sample * 32767.0f);
+        // sample is unipolar 0..1; map to int16 with center at 0 and gain
+        // that uses ~half the int16 range so 4-channel peaks don't clip.
+        int32_t s = (int32_t)((sample - 0.5f) * 32767.0f);
         if (s >  32767) s =  32767;
         if (s < -32768) s = -32768;
         out[i] = (int16_t)s;
