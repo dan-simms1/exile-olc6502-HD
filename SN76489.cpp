@@ -119,12 +119,11 @@ void SN76489::Render(int16_t* out, int numSamples) {
         }
         sample += (float)(mNoiseLfsr & 1) * mVolumeLut[mCh[3].volume];
 
-        // sample is unipolar 0..1; map to int16 bipolar. 2× gain so
-        // single-channel chip output is loud enough to match the 8-bit
-        // voice samples. 4-channel full-blast peaks clip but that's rare
-        // in real Exile soundtracks.
-        constexpr float kChipGain = 2.0f;
-        int32_t s = (int32_t)((sample - 0.5f) * 32767.0f * kChipGain);
+        // sample is unipolar 0..1; map to int16 bipolar, centered on 0.
+        // No gain — chip vs voice-sample loudness is balanced by
+        // attenuating the voice samples on the AudioQueue side instead
+        // (see SampleManager::PlayData kVoiceGain).
+        int32_t s = (int32_t)((sample - 0.5f) * 32767.0f);
         if (s >  32767) s =  32767;
         if (s < -32768) s = -32768;
         out[i] = (int16_t)s;

@@ -65,7 +65,7 @@ private:
         WavData* tone = nullptr;   // nullable; owned by this entry
     };
     std::queue<QueueEntry> mQueue;  // replaces old mPending int queue
-    void PlayData(const WavData& data);  // shared AudioQueue code path
+    void PlayData(const WavData& data, float gain);  // shared AudioQueue code path
 
     bool LoadWav(const std::string& path, WavData& out);
     void WorkerLoop();

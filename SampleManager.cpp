@@ -237,15 +237,19 @@ void SampleManager::WorkerLoop() {
             mQueue.pop();
         }
         if (e.tone) {
-            PlayData(*e.tone);
+            PlayData(*e.tone, 1.0f);         // synthesized tones at unity
             delete e.tone;
         } else if (e.sampleId >= 0 && e.sampleId < (int)mSamples.size()) {
-            PlayData(mSamples[e.sampleId]);
+            // Voice samples attenuated — raw 8-bit PCM from Tom Seddon's
+            // extraction peaks at full ±127, which booms above the chip's
+            // square-wave output. 0.4 keeps speech audible but at a level
+            // closer to the chip's beeps/shots so they don't overpower.
+            PlayData(mSamples[e.sampleId], 0.4f);
         }
     }
 }
 
-void SampleManager::PlayData(const WavData& s) {
+void SampleManager::PlayData(const WavData& s, float gain) {
     AudioStreamBasicDescription desc = {};
     desc.mSampleRate       = (Float64)s.sampleRate;
     desc.mFormatID         = kAudioFormatLinearPCM;
@@ -262,6 +266,11 @@ void SampleManager::PlayData(const WavData& s) {
                                       nullptr, kCFRunLoopCommonModes, 0, &aq);
     if (st != noErr || !aq) { delete ctx; return; }
     ctx->q = aq;
+
+    // Apply per-play gain via AudioQueue's volume parameter (0..1).
+    if (gain < 0.0f) gain = 0.0f;
+    if (gain > 1.0f) gain = 1.0f;
+    AudioQueueSetParameter(aq, kAudioQueueParam_Volume, gain);
 
     AudioQueueBufferRef buf = nullptr;
     st = AudioQueueAllocateBuffer(aq, (UInt32)s.pcm.size(), &buf);
