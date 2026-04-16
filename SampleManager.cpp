@@ -153,30 +153,99 @@ void SampleManager::Play(int sampleId) {
     int64_t cooldownMs = (int64_t)(s.durationSec * 1000.0);
     if (cooldownMs > 0 && (now - mLastPlayMs[sampleId]) < cooldownMs) return;
     mLastPlayMs[sampleId] = now;
+    QueueEntry e;
+    e.sampleId = sampleId;
     {
         std::lock_guard<std::mutex> lk(mMutex);
-        if (mPending.size() < 16) mPending.push(sampleId);
+        if (mQueue.size() < 32) mQueue.push(std::move(e));
+    }
+    mCV.notify_one();
+}
+
+void SampleManager::PlayTone(double freqHz, double ampLin, int durationMs) {
+    if (durationMs <= 0) return;
+    if (ampLin <= 0.0) return;
+    if (ampLin > 1.0) ampLin = 1.0;
+
+    // Synthesize into 22050 Hz 8-bit unsigned PCM. Square wave for tones,
+    // pseudo-noise for freqHz<=0 (used for shots/explosions — SN76489 chan 4).
+    constexpr uint32_t SR = 22050;
+    const int nSamples = (int)((int64_t)SR * durationMs / 1000);
+    auto* w = new WavData();
+    w->sampleRate = SR;
+    w->durationSec = (double)nSamples / (double)SR;
+    w->pcm.resize(nSamples);
+
+    const int hi = (int)(127.0 + 127.0 * ampLin);
+    const int lo = (int)(127.0 - 127.0 * ampLin);
+
+    if (freqHz > 0.0) {
+        // Square wave at freqHz with a short linear fade-out on the tail
+        // so cutoff doesn't click.
+        const double period = (double)SR / freqHz;     // in samples
+        const int fadeStart = (int)(nSamples * 0.85);  // last 15% fades
+        for (int i = 0; i < nSamples; ++i) {
+            int phase = (int)std::fmod((double)i, period);
+            int v = (phase < period / 2.0) ? hi : lo;
+            if (i > fadeStart) {
+                double k = 1.0 - (double)(i - fadeStart) / (double)(nSamples - fadeStart);
+                v = (int)(127.0 + (v - 127) * k);
+            }
+            w->pcm[i] = (uint8_t)v;
+        }
+    } else {
+        // White noise with fade-out (SN76489 channel-4 style).
+        uint32_t lfsr = 0xACE1u;
+        const int fadeStart = (int)(nSamples * 0.85);
+        for (int i = 0; i < nSamples; ++i) {
+            // Galois 16-bit LFSR, taps 0xB400
+            unsigned bit = lfsr & 1;
+            lfsr >>= 1;
+            if (bit) lfsr ^= 0xB400u;
+            int v = bit ? hi : lo;
+            if (i > fadeStart) {
+                double k = 1.0 - (double)(i - fadeStart) / (double)(nSamples - fadeStart);
+                v = (int)(127.0 + (v - 127) * k);
+            }
+            w->pcm[i] = (uint8_t)v;
+        }
+    }
+
+    QueueEntry e;
+    e.sampleId = -1;
+    e.tone = w;
+    {
+        std::lock_guard<std::mutex> lk(mMutex);
+        if (mQueue.size() < 32) {
+            mQueue.push(std::move(e));
+        } else {
+            delete w;  // drop silently if queue is saturated
+            return;
+        }
     }
     mCV.notify_one();
 }
 
 void SampleManager::WorkerLoop() {
     while (true) {
-        int id;
+        QueueEntry e;
         {
             std::unique_lock<std::mutex> lk(mMutex);
-            mCV.wait(lk, [&]{ return mShutdown || !mPending.empty(); });
-            if (mShutdown && mPending.empty()) return;
-            id = mPending.front();
-            mPending.pop();
+            mCV.wait(lk, [&]{ return mShutdown || !mQueue.empty(); });
+            if (mShutdown && mQueue.empty()) return;
+            e = std::move(mQueue.front());
+            mQueue.pop();
         }
-        PlayImpl(id);
+        if (e.tone) {
+            PlayData(*e.tone);
+            delete e.tone;
+        } else if (e.sampleId >= 0 && e.sampleId < (int)mSamples.size()) {
+            PlayData(mSamples[e.sampleId]);
+        }
     }
 }
 
-void SampleManager::PlayImpl(int sampleId) {
-    const auto& s = mSamples[sampleId];
-
+void SampleManager::PlayData(const WavData& s) {
     AudioStreamBasicDescription desc = {};
     desc.mSampleRate       = (Float64)s.sampleRate;
     desc.mFormatID         = kAudioFormatLinearPCM;

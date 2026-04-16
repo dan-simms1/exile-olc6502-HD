@@ -60,6 +60,10 @@ const int      OBJECT_SLOTS           = 16;       // enhanced: original BBC 16-s
 const uint16_t SAMPLE_TRAP_SCREAM          = 0x24CA; // play_scream → samples 1-4 (Ow!/Ow/Ooh/Oooh!)
 const uint16_t SAMPLE_TRAP_HOVERING_ROBOT  = 0xA4AB; // hovering robot dying → sample 6 (Radio die)
 const uint16_t SAMPLE_TRAP_CLAWED_ROBOT    = 0xA4F3; // clawed robot teleport → sample 5 (Destroy!)
+// play_sound entry — enhanced at $140F (vs standard's $13FA). We trap here,
+// read the 4-byte envelope block that follows the caller's JSR, and
+// synthesize a short square-wave tone via SampleManager.PlayTone().
+const uint16_t SOUND_TRAP_PLAY_SOUND       = 0x140F;
 #else
 // BBC Micro standard ROM addresses.
 const uint16_t GAME_RAM_INPUTS             = 0x126b;
@@ -103,6 +107,8 @@ const int      OBJECT_SLOTS           = 128;      // HD relocates to $9600+ with
 const uint16_t SAMPLE_TRAP_SCREAM          = 0x2497; // scream → samples 1-4 (Ow!/Ow/Ooh/Oooh!)
 const uint16_t SAMPLE_TRAP_HOVERING_ROBOT  = 0x480E; // hovering robot 1-in-256 sound → sample 6 (Radio die)
 const uint16_t SAMPLE_TRAP_CLAWED_ROBOT    = 0x4858; // clawed robot teleport → sample 5 (Destroy!)
+// play_sound entry — same address in both variants.
+const uint16_t SOUND_TRAP_PLAY_SOUND       = 0x13FA;
 #endif
 
 struct XY {

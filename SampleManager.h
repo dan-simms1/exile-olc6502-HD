@@ -38,6 +38,11 @@ public:
     // AudioQueueStart (which can take 50-200 ms cold).
     void Play(int sampleId);
 
+    // Synthesize a short square-wave tone. Used to reconstruct BBC SN76489
+    // sound effects (shots, beeps) without a full sound-chip emulator.
+    // freqHz <=0 means noise. ampLin is 0..1, durationMs typically 30-300.
+    void PlayTone(double freqHz, double ampLin, int durationMs);
+
     bool IsLoaded() const { return !mSamples.empty(); }
 
 private:
@@ -52,14 +57,22 @@ private:
     // mirroring the enhanced ROM's single-channel sample DAC behaviour.
     std::vector<int64_t> mLastPlayMs;
 
+    // Worker-queue entry: either a sample ID (>=0), or a synthesized tone
+    // passed as a heap-owned WavData (id == -1). The worker plays it and
+    // deletes the data.
+    struct QueueEntry {
+        int sampleId = -1;
+        WavData* tone = nullptr;   // nullable; owned by this entry
+    };
+    std::queue<QueueEntry> mQueue;  // replaces old mPending int queue
+    void PlayData(const WavData& data);  // shared AudioQueue code path
+
     bool LoadWav(const std::string& path, WavData& out);
     void WorkerLoop();
-    void PlayImpl(int sampleId);   // blocking implementation, runs on worker
 
     // Worker thread + queue for non-blocking Play()
     std::thread mWorker;
     std::mutex mMutex;
     std::condition_variable mCV;
-    std::queue<int> mPending;
     std::atomic<bool> mShutdown{false};
 };

@@ -4,6 +4,7 @@
 #include "Exile.h"
 #include "SampleManager.h"
 #include <chrono>
+#include <cmath>
 #include <thread>
 #ifndef BISECT_LO
 #define BISECT_LO 0
@@ -98,6 +99,51 @@ public:
 		float y = GameCoordinateY - fCanvasY - fCanvasOffsetY - (fScrollShiftY * fTimeSinceLastFrame / 0.025f);
 		y = y * SCREEN_ZOOM;
 		return y;
+	}
+
+	// Called when CPU PC == play_sound entry. Reads the 4-byte envelope block
+	// from the caller's code (immediately after the JSR), then synthesizes
+	// a short square-wave (or noise) tone via SampleManager.PlayTone.
+	//
+	// Game's 4-byte sound parameter format (per disassembly):
+	//   byte 0: volume envelope offset (1-127). High bit (>= 0x80) → noise on chan 4.
+	//   byte 1: top nibble = initial volume (0-15), bottom = envelope duration
+	//   byte 2: frequency envelope offset
+	//   byte 3: top nibble = initial pitch (0-15), bottom = envelope duration
+	void DispatchPlaySound() {
+		// Stack layout right after JSR: top of stack holds (return_addr-1)
+		// in two bytes: low at $100+(SP+1), high at $100+(SP+2).
+		uint8_t sp  = Game.BBC.cpu.stkp;
+		uint8_t lo  = Game.BBC.ram[0x0100 + ((sp + 1) & 0xFF)];
+		uint8_t hi  = Game.BBC.ram[0x0100 + ((sp + 2) & 0xFF)];
+		uint16_t ra = (uint16_t)lo | ((uint16_t)hi << 8);   // = call_addr - 1
+		// 4 envelope bytes are immediately after the JSR (ra+1..ra+4).
+		uint8_t b0 = Game.BBC.ram[(uint16_t)(ra + 1)];
+		uint8_t b1 = Game.BBC.ram[(uint16_t)(ra + 2)];
+		uint8_t b2 = Game.BBC.ram[(uint16_t)(ra + 3)];
+		uint8_t b3 = Game.BBC.ram[(uint16_t)(ra + 4)];
+
+		uint8_t volTop  = (b1 >> 4) & 0x0F;
+		uint8_t volDur  = (b1     ) & 0x0F;
+		uint8_t pitchTop= (b3 >> 4) & 0x0F;
+		uint8_t pitchDur= (b3     ) & 0x0F;
+
+		double amp = (double)volTop / 15.0;
+		if (amp <= 0.0) amp = 0.4;       // many envelopes start at 0 vol then ramp
+		// Noise / shot-style: envelope offset top bit set, or freq envelope == 0
+		bool isNoise = (b0 & 0x80) || (b2 == 0xFF);
+		double freqHz;
+		if (isNoise) {
+			freqHz = -1.0;               // PlayTone: <=0 → noise
+		} else {
+			// Map 4-bit initial pitch to ~110Hz..~3500Hz exponentially.
+			freqHz = 110.0 * std::pow(2.0, (double)pitchTop * 0.31);
+		}
+		// Duration: combine the two envelope-duration nibbles.
+		int durMs = 30 + (int)(volDur + pitchDur) * 12;
+		if (durMs > 400) durMs = 400;
+
+		Samples.PlayTone(freqHz, amp, durMs);
 	}
 
 	bool OnUserCreate()
@@ -257,6 +303,7 @@ public:
 				if (Game.BBC.cpu.pc == SAMPLE_TRAP_SCREAM)         Samples.Play(1 + (rand() & 3));
 				if (Game.BBC.cpu.pc == SAMPLE_TRAP_HOVERING_ROBOT) Samples.Play(6);
 				if (Game.BBC.cpu.pc == SAMPLE_TRAP_CLAWED_ROBOT)   Samples.Play(5);
+				if (Game.BBC.cpu.pc == SOUND_TRAP_PLAY_SOUND)      DispatchPlaySound();
 				if (--nCycleSafetyCap <= 0) break;
 			} while (Game.BBC.cpu.pc != GAME_RAM_STARTGAMELOOP);
 #else
@@ -268,6 +315,7 @@ public:
 				if (Game.BBC.cpu.pc == SAMPLE_TRAP_SCREAM)         Samples.Play(1 + (rand() & 3));
 				if (Game.BBC.cpu.pc == SAMPLE_TRAP_HOVERING_ROBOT) Samples.Play(6);
 				if (Game.BBC.cpu.pc == SAMPLE_TRAP_CLAWED_ROBOT)   Samples.Play(5);
+				if (Game.BBC.cpu.pc == SOUND_TRAP_PLAY_SOUND)      DispatchPlaySound();
 			} while (Game.BBC.cpu.pc != GAME_RAM_STARTGAMELOOP);
 #endif
 			// O------------------------------------------------------------------------------O
