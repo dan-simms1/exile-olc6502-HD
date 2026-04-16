@@ -1,4 +1,5 @@
 #include "Bus.h"
+#include "BBCSound.h"
 
 Bus::Bus()
 {
@@ -32,6 +33,15 @@ void Bus::write(uint16_t addr, uint8_t data)
 			sidewaysBanks[activeBank][addr - 0x8000] = data;
 			return;
 		}
+	}
+
+	// System VIA → SN76489 path. The game writes its sound byte to port A
+	// ($FE4F) then strobes the IC32 latch (port B at $FE40) with line 0
+	// going low to assert sound chip /WE. BBCSound::OnPortBWrite latches
+	// the byte on the falling edge.
+	if (sound) {
+		if (addr == 0xFE4F) sound->OnPortAWrite(data);
+		else if (addr == 0xFE40) sound->OnPortBWrite(data);
 	}
 
 	// All other addresses — main RAM. (Standard HD build: entire 64 KB is flat RAM,

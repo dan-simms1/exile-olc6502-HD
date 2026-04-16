@@ -3,6 +3,8 @@
 #include "olc6502.h"
 #include <array>
 
+class BBCSound;  // forward decl — Bus only needs the pointer.
+
 class Bus
 {
 public:
@@ -23,6 +25,10 @@ public: // Devices on Bus
 	bool bSidewaysPaging = false;  // Opt-in: only the sideways-RAM variant enables this. Standard HD
 	                               // build leaves it false so $8000-$BFFF behaves as flat main RAM
 	                               // (it uses that range for relocated object stacks).
+
+	// SN76489 sound chip emulator. Optional — if null, sound writes are
+	// silently absorbed. Owned by Main; Bus just forwards System VIA writes.
+	BBCSound* sound = nullptr;
 
 public: // Bus read and write
 	void write(uint16_t addr, uint8_t data);

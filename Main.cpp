@@ -3,6 +3,7 @@
 
 #include "Exile.h"
 #include "SampleManager.h"
+#include "BBCSound.h"
 #include <chrono>
 #include <cmath>
 #include <thread>
@@ -87,6 +88,7 @@ public:
 
 	Exile Game;
 	SampleManager Samples;
+	BBCSound      Sound;
 
 	float ScreenCoordinateX(float GameCoordinateX) {
 		float x = GameCoordinateX - fCanvasX - fCanvasOffsetX - (fScrollShiftX * fTimeSinceLastFrame / 0.025f);
@@ -208,6 +210,10 @@ public:
 		// are non-fatal; we just won't play them.
 		Samples.LoadDirectory("samples");
 
+		// Wire SN76489 emulator: Bus → BBCSound on System VIA writes.
+		Game.BBC.sound = &Sound;
+		Sound.Start();
+
 		return true;
 	}
 
@@ -303,7 +309,10 @@ public:
 				if (Game.BBC.cpu.pc == SAMPLE_TRAP_SCREAM)         Samples.Play(1 + (rand() & 3));
 				if (Game.BBC.cpu.pc == SAMPLE_TRAP_HOVERING_ROBOT) Samples.Play(6);
 				if (Game.BBC.cpu.pc == SAMPLE_TRAP_CLAWED_ROBOT)   Samples.Play(5);
-				if (Game.BBC.cpu.pc == SOUND_TRAP_PLAY_SOUND)      DispatchPlaySound();
+				// BBC sound trap disabled — heuristic synthesis sounded wrong.
+				// Re-enable once we have real envelope decoding or sampled
+				// BBC sound effects. See DispatchPlaySound() in this file.
+				//if (Game.BBC.cpu.pc == SOUND_TRAP_PLAY_SOUND)    DispatchPlaySound();
 				if (--nCycleSafetyCap <= 0) break;
 			} while (Game.BBC.cpu.pc != GAME_RAM_STARTGAMELOOP);
 #else
@@ -315,7 +324,7 @@ public:
 				if (Game.BBC.cpu.pc == SAMPLE_TRAP_SCREAM)         Samples.Play(1 + (rand() & 3));
 				if (Game.BBC.cpu.pc == SAMPLE_TRAP_HOVERING_ROBOT) Samples.Play(6);
 				if (Game.BBC.cpu.pc == SAMPLE_TRAP_CLAWED_ROBOT)   Samples.Play(5);
-				if (Game.BBC.cpu.pc == SOUND_TRAP_PLAY_SOUND)      DispatchPlaySound();
+				//if (Game.BBC.cpu.pc == SOUND_TRAP_PLAY_SOUND)    DispatchPlaySound();
 			} while (Game.BBC.cpu.pc != GAME_RAM_STARTGAMELOOP);
 #endif
 			// O------------------------------------------------------------------------------O

@@ -1,7 +1,7 @@
 # macOS Makefile for exile-olc6502-HD
 # Uses GLUT + OpenGL frameworks (deprecated but functional) and libpng from Homebrew.
 
-SOURCES := Bus.cpp Exile.cpp olc6502.cpp SampleManager.cpp Main.cpp
+SOURCES := Bus.cpp Exile.cpp olc6502.cpp SampleManager.cpp BBCSound.cpp SN76489.cpp Main.cpp
 
 BREW_PREFIX := $(shell brew --prefix)
 LIBPNG_PREFIX := $(shell brew --prefix libpng)
