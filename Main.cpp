@@ -2,6 +2,7 @@
 #include "olcPixelGameEngine.h"
 
 #include "Exile.h"
+#include "SampleManager.h"
 #include <chrono>
 #include <thread>
 #ifndef BISECT_LO
@@ -84,6 +85,7 @@ public:
 	Exile_olc6502_HD() { sAppName = "Exile"; }
 
 	Exile Game;
+	SampleManager Samples;
 
 	float ScreenCoordinateX(float GameCoordinateX) {
 		float x = GameCoordinateX - fCanvasX - fCanvasOffsetX - (fScrollShiftX * fTimeSinceLastFrame / 0.025f);
@@ -156,6 +158,10 @@ public:
 #endif
 		Game.Initialise();
 
+		// Load Tom Seddon's voice samples (Master enhanced). Missing/absent samples
+		// are non-fatal; we just won't play them.
+		Samples.LoadDirectory("samples");
+
 		return true;
 	}
 
@@ -169,6 +175,18 @@ public:
 		if (GetKey(olc::K2).bPressed) Game.Cheat_StoreAnyObject();
 		if (GetKey(olc::K3).bPressed) bShowDebugGrid = !bShowDebugGrid;
 		if (GetKey(olc::K4).bPressed) bShowDebugOverlay = !bShowDebugOverlay;
+		// Sample debug keys — F9 plays welcome; NP0..NP6 play samples 0..6.
+		if (GetKey(olc::F9).bPressed)  Samples.Play(0);  // "Welcome to the land of the exile"
+		if (GetKey(olc::F10).bPressed) Samples.Play(1);  // "Ow!"
+		if (GetKey(olc::F11).bPressed) Samples.Play(5);  // "Destroy!"
+		if (GetKey(olc::F12).bPressed) Samples.Play(6);  // "Radio die"
+		if (GetKey(olc::NP0).bPressed) Samples.Play(0);
+		if (GetKey(olc::NP1).bPressed) Samples.Play(1);
+		if (GetKey(olc::NP2).bPressed) Samples.Play(2);
+		if (GetKey(olc::NP3).bPressed) Samples.Play(3);
+		if (GetKey(olc::NP4).bPressed) Samples.Play(4);
+		if (GetKey(olc::NP5).bPressed) Samples.Play(5);
+		if (GetKey(olc::NP6).bPressed) Samples.Play(6);
 
 		// (Runtime fullscreen toggle removed — Apple GLUT's glutFullScreen / glutReshapeWindow
 		//  crashes with NSInternalInconsistencyException on Tahoe. Use the macOS green button

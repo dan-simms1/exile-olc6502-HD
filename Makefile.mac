@@ -1,7 +1,7 @@
 # macOS Makefile for exile-olc6502-HD
 # Uses GLUT + OpenGL frameworks (deprecated but functional) and libpng from Homebrew.
 
-OBJS := Bus.o Exile.o olc6502.o Main.o
+OBJS := Bus.o Exile.o olc6502.o SampleManager.o Main.o
 
 BREW_PREFIX := $(shell brew --prefix)
 LIBPNG_PREFIX := $(shell brew --prefix libpng)
@@ -10,7 +10,7 @@ CXX := clang++
 CXXFLAGS := -std=c++17 -O3 -flto -Wno-deprecated-declarations \
             -I$(LIBPNG_PREFIX)/include
 LDFLAGS  := -L$(LIBPNG_PREFIX)/lib -lpng -framework GLUT -framework OpenGL -framework Carbon \
-            -pthread -flto
+            -framework AudioToolbox -pthread -flto
 
 exile: $(OBJS) | exile-disassembly.txt
 	$(CXX) -o $@ $(OBJS) $(LDFLAGS)
