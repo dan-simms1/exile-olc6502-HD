@@ -1,7 +1,34 @@
 #include "SN76489.h"
 
+#include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
+
+// --- Diagnostic logging (define SN76489_DEBUG=1 at compile time to enable) ---
+// Writes every chip byte and every render-buffer peak/valley to /tmp/sn76489.log
+// with a steady-clock millisecond timestamp. Used to track down the periodic
+// "thud" the user reports every ~8-9 seconds. Disabled by default so release
+// builds don't spew a 100 KB/s log file.
+#ifndef SN76489_DEBUG
+#define SN76489_DEBUG 0
+#endif
+
+#if SN76489_DEBUG
+static FILE* sDbgLog = nullptr;
+static int64_t sDbgT0 = 0;
+static int64_t SnDbgMs() {
+    using namespace std::chrono;
+    if (sDbgT0 == 0) sDbgT0 = duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+    return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count() - sDbgT0;
+}
+static void SnDbgOpen() {
+    if (!sDbgLog) {
+        sDbgLog = fopen("/tmp/sn76489.log", "w");
+        if (sDbgLog) fprintf(sDbgLog, "# ms  kind   data\n");
+    }
+}
+#endif
 
 SN76489::SN76489(uint32_t outputSampleRate)
     : mOutSampleRate(outputSampleRate)
@@ -23,6 +50,28 @@ SN76489::SN76489(uint32_t outputSampleRate)
 
 void SN76489::Write(uint8_t b) {
     std::lock_guard<std::mutex> lk(mMutex);
+
+#if SN76489_DEBUG
+    SnDbgOpen();
+    if (sDbgLog) {
+        if (b & 0x80) {
+            int chan  = (b >> 5) & 0x03;
+            int isVol = (b >> 4) & 0x01;
+            int data  = b & 0x0F;
+            fprintf(sDbgLog, "%lld WRITE %02X  sel ch=%d %s low=%X  (prev vol=%u div=%u)\n",
+                    (long long)SnDbgMs(), b, chan, isVol?"VOL":"TON", data,
+                    mCh[chan].volume, mCh[chan].divider);
+        } else {
+            int chan  = (mLatchedReg >> 1) & 0x03;
+            int isVol = mLatchedReg & 0x01;
+            int data  = b & 0x3F;
+            fprintf(sDbgLog, "%lld WRITE %02X  dat ch=%d %s hi=%X  (prev div=%u)\n",
+                    (long long)SnDbgMs(), b, chan, isVol?"VOL":"TON", data,
+                    mCh[chan].divider);
+        }
+        fflush(sDbgLog);
+    }
+#endif
 
     if (b & 0x80) {
         // Register-select byte: 1RRtDDDD
@@ -96,16 +145,23 @@ inline bool SN76489::DoChannelStep(int ch, uint32_t addAmount) {
 void SN76489::Render(int16_t* out, int numSamples) {
     std::lock_guard<std::mutex> lk(mMutex);
 
+#if SN76489_DEBUG
+    int16_t minS =  32767, maxS = -32768;
+#endif
+
     for (int i = 0; i < numSamples; ++i) {
+        // Natively bipolar mix: each channel contributes
+        //   (outputBit - 0.5) × volume
+        // = ±0.5 × volume. Per-channel DC is always zero regardless of
+        // outputBit, so no DC offset appears when only some channels are
+        // silent. No subtract-0.5, no DC-blocker, no thud at sound end.
         float sample = 0.0f;
 
-        // Three tone channels.
         for (int c = 0; c < 3; ++c) {
             DoChannelStep(c, mCh[c].divider);
-            sample += (float)mCh[c].outputBit * mVolumeLut[mCh[c].volume];
+            sample += ((float)mCh[c].outputBit - 0.5f) * mVolumeLut[mCh[c].volume];
         }
 
-        // Noise channel — addAmount picks rate or borrows tone-2 divider.
         uint32_t noiseAdd;
         switch (mNoiseCtrl & 0x03) {
             case 0:  noiseAdd = 0x10; break;
@@ -114,16 +170,39 @@ void SN76489::Render(int16_t* out, int numSamples) {
             default: noiseAdd = mCh[2].divider; break;
         }
         if (DoChannelStep(3, noiseAdd)) {
-            // Toggled this sample → shift LFSR
             ShiftLfsr();
         }
-        sample += (float)(mNoiseLfsr & 1) * mVolumeLut[mCh[3].volume];
+        sample += ((float)(mNoiseLfsr & 1) - 0.5f) * mVolumeLut[mCh[3].volume];
 
-        // sample is unipolar 0..1; map to int16 with center at 0 and gain
-        // that uses ~half the int16 range so 4-channel peaks don't clip.
-        int32_t s = (int32_t)((sample - 0.5f) * 32767.0f);
+        // sample is bipolar, ranging ±0.5 (4 channels max). Scale to
+        // int16 — max ±16384 so two loud channels peak near int16 max
+        // without clipping.
+        float raw = sample * 32767.0f;
+        int32_t s = (int32_t)raw;
         if (s >  32767) s =  32767;
         if (s < -32768) s = -32768;
         out[i] = (int16_t)s;
+#if SN76489_DEBUG
+        if (out[i] < minS) minS = out[i];
+        if (out[i] > maxS) maxS = out[i];
+#endif
     }
+
+#if SN76489_DEBUG
+    SnDbgOpen();
+    if (sDbgLog) {
+        int16_t first = out[0];
+        int16_t last  = out[numSamples - 1];
+        // Peak-to-peak swing across this buffer. Silent idle is near
+        // -16383 DC, so p2p small. A sound burst swings ~30k peak-to-peak.
+        int p2p = (int)maxS - (int)minS;
+        fprintf(sDbgLog,
+            "%lld BUF n=%d first=%d last=%d min=%d max=%d p2p=%d "
+            "[vol:%u %u %u %u div:%u %u %u noise:%u]\n",
+            (long long)SnDbgMs(), numSamples, first, last, minS, maxS, p2p,
+            mCh[0].volume, mCh[1].volume, mCh[2].volume, mCh[3].volume,
+            mCh[0].divider, mCh[1].divider, mCh[2].divider, mNoiseCtrl);
+        fflush(sDbgLog);
+    }
+#endif
 }
