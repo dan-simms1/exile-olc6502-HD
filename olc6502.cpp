@@ -167,24 +167,12 @@ void olc6502::SetFlag(FLAGS6502 f, bool v)
 uint16_t olc6502::ReloactedStackAddress(uint16_t AddressToTest)
 {
 #ifdef EXILE_VARIANT_SIDEWAYS_RAM
-	// Sideways: full-range mapping $0860-$097F → $C000-$D10F.
-	// Catches every instruction that references the object-stack area, including
-	// indexed accesses ($0860,X with X>0) and self-modifying / indirect reads
-	// that byte-level ROM rewrites can't easily cover.
-	// 18 stacks, each 16 bytes wide, at 256-byte-aligned pages in flat OS-ROM RAM.
-	struct Map { uint16_t oldBase; uint16_t newBase; };
-	static const Map kMap[] = {
-		{0x0860,0xC000},{0x0870,0xC100},{0x0880,0xC200},{0x0891,0xC300},
-		{0x08A3,0xC400},{0x08B4,0xC500},{0x08C6,0xC600},{0x08D6,0xC700},
-		{0x08E6,0xC800},{0x08F6,0xC900},{0x0906,0xCA00},{0x0916,0xCB00},
-		{0x0926,0xCC00},{0x0936,0xCD00},{0x0946,0xCE00},{0x0956,0xCF00},
-		{0x0966,0xD000},{0x0976,0xD100},
-	};
-	for (const auto& m : kMap) {
-		if (AddressToTest >= m.oldBase && AddressToTest < m.oldBase + 0x10) {
-			return m.newBase + (AddressToTest - m.oldBase);
-		}
-	}
+	// Sideways: NO runtime translation. The 192 byte-level operand rewrites in
+	// PatchEnhancedExileRAM directly change every $08xx instruction operand to
+	// $C0xx, so the runtime sees the relocated addresses already. A safety-net
+	// runtime translation would actively MISTRANSLATE for X>15 indexed accesses
+	// (cross stack boundaries — $0860,X with X=16 should be type[16] but the
+	// safety net would translate to sprite[0]). Trust the byte rewrites.
 	return AddressToTest;
 #else
 	switch(AddressToTest) {
