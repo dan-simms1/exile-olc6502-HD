@@ -338,7 +338,7 @@ public:
 			// because leave_interrupt does LDA $FC before RTI. Clear I so
 			// olc6502::irq() will actually fire.
 			static double sIrqAccumSec = 0.0;
-			constexpr double kBbcSoundIrqPeriodSec = 0.01;  // 100 Hz
+			constexpr double kBbcSoundIrqPeriodSec = 0.02;  // 50 Hz (one per VSync)
 			sIrqAccumSec += 0.025;  // game tick is ~25 ms; refine if needed
 			while (sIrqAccumSec >= kBbcSoundIrqPeriodSec) {
 				sIrqAccumSec -= kBbcSoundIrqPeriodSec;
