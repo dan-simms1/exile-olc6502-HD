@@ -2,10 +2,16 @@
 
 #include <AudioToolbox/AudioToolbox.h>
 #include <mach-o/dyld.h>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <sys/stat.h>
+
+static int64_t NowMs() {
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+}
 
 SampleManager::SampleManager() {
     // Start the audio worker so Play() never blocks the game loop.
@@ -61,6 +67,7 @@ bool SampleManager::LoadWav(const std::string& path, WavData& out) {
     }
     out.pcm.assign(buf.begin() + dataOff, buf.begin() + dataOff + dataLen);
     out.sampleRate = sampleRate;
+    out.durationSec = (sampleRate > 0) ? (double)dataLen / (double)sampleRate : 0.0;
     return true;
 }
 
@@ -117,6 +124,7 @@ int SampleManager::LoadDirectory(const std::string& dirHint) {
     for (auto& s : mSamples) if (!s.pcm.empty()) ++loaded;
     fprintf(stderr, "SampleManager: loaded %d/%zu samples from %s\n",
             loaded, mSamples.size(), dir.c_str());
+    mLastPlayMs.assign(mSamples.size(), 0);
     return loaded;
 }
 
@@ -137,10 +145,16 @@ namespace {
 
 void SampleManager::Play(int sampleId) {
     if (sampleId < 0 || sampleId >= (int)mSamples.size()) return;
-    if (mSamples[sampleId].pcm.empty()) return;
+    const auto& s = mSamples[sampleId];
+    if (s.pcm.empty()) return;
+    // Cooldown: don't re-trigger the same sample while its previous instance
+    // is still playing (mirrors enhanced ROM's single-channel sample DAC).
+    int64_t now = NowMs();
+    int64_t cooldownMs = (int64_t)(s.durationSec * 1000.0);
+    if (cooldownMs > 0 && (now - mLastPlayMs[sampleId]) < cooldownMs) return;
+    mLastPlayMs[sampleId] = now;
     {
         std::lock_guard<std::mutex> lk(mMutex);
-        // Cap the queue so a stuck audio device can't grow it without bound.
         if (mPending.size() < 16) mPending.push(sampleId);
     }
     mCV.notify_one();

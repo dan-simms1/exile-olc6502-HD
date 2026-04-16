@@ -44,8 +44,13 @@ private:
     struct WavData {
         std::vector<uint8_t> pcm;    // 8-bit unsigned PCM samples
         uint32_t sampleRate = 0;
+        double durationSec = 0.0;    // for cooldown / throttling
     };
     std::vector<WavData> mSamples;
+    // Per-sample "last played" timestamp (steady_clock ms). Skip Play() while
+    // the previous instance of the same sample is still likely sounding,
+    // mirroring the enhanced ROM's single-channel sample DAC behaviour.
+    std::vector<int64_t> mLastPlayMs;
 
     bool LoadWav(const std::string& path, WavData& out);
     void WorkerLoop();
