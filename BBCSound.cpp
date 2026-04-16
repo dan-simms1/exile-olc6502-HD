@@ -6,8 +6,9 @@
 
 namespace {
     constexpr uint32_t kSampleRate = 22050;
-    constexpr UInt32   kNumBuffers  = 4;
-    constexpr UInt32   kFramesPerBuffer = 1024;   // ~46 ms of audio per buffer
+    constexpr UInt32   kNumBuffers  = 3;
+    constexpr UInt32   kFramesPerBuffer = 256;    // ~12 ms of audio per buffer
+                                                  // (3 × 12 = ~35 ms total latency)
     constexpr UInt32   kBytesPerFrame = sizeof(int16_t);
     constexpr UInt32   kBufferBytes = kFramesPerBuffer * kBytesPerFrame;
 

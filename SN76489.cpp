@@ -6,11 +6,11 @@
 SN76489::SN76489(uint32_t outputSampleRate)
     : mOutSampleRate(outputSampleRate)
 {
-    // Internal clock: 4 MHz input divided by 8 prescaler → 500 kHz tick rate
-    // (matches jsbeeb). Earlier 250 kHz value (i.e. /16 prescaler reading
-    // from the SN76489 datasheet) made tones come out an octave lower than
-    // real BBC. The chip's effective output frequency = 500000 / (2 × N).
-    mStepQ16 = (uint32_t)((500000ULL << 16) / outputSampleRate);
+    // Internal counter tick rate. jsbeeb sets soundchipFreq = 4 MHz / 8 =
+    // 500 kHz but then sets waveDecrementPerSecond = soundchipFreq / 2 =
+    // 250 kHz, so the counter actually decrements at 250 kHz. Matches the
+    // SN76489 datasheet (4 MHz / 16). Output freq = 250000 / (2 × N).
+    mStepQ16 = (uint32_t)((250000ULL << 16) / outputSampleRate);
 
     // 16-step ~2 dB per step attenuation table for one channel. Per-channel
     // peak ±8192. With four channels at full volume the mix can reach ±32768
