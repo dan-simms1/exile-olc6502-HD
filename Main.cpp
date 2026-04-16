@@ -323,23 +323,29 @@ public:
 			} while (Game.BBC.cpu.pc != GAME_RAM_STARTGAMELOOP);
 #endif
 
-			// Fake IRQ once per game frame so the BBC's sound-update code
-			// (inside IRQ handler at $12A6 → $1320 sound block) actually runs.
-			// Higher rates (2-3×) make sound effects audibly finish too quickly:
-			// each IRQ advances every channel's envelope by one stage and
-			// decrements sound_duration, so multiplying IRQs multiplies the
-			// envelope speed.
+			// Fake IRQ on real wall-clock time at ~100 Hz (BBC's actual sound
+			// update rate — System VIA Timer 1 fires twice per VSync). Each IRQ
+			// advances every sound channel's envelope by one stage and
+			// decrements sound_duration, so this rate is what determines how
+			// fast a sound effect plays. Pinning to wall-clock time rather than
+			// game-tick count means sound speed stays consistent regardless of
+			// the game-tick interval (currently 25 ms / 40 Hz, but PGE could
+			// drift).
 			//
-			// IRQ1V at $0204 already points to $12A6 (set by bmain.rom).
-			// Set $FE4D bit 7 (so handler's BPL fails) with bit 6 clear (so its
+			// IRQ1V at $0204 already points to $12A6 (set by bmain.rom). Set
+			// $FE4D bit 7 (so handler's BPL fails) with bit 6 clear (so its
 			// BVC takes the branch to the sound-update path). Save A in $FC
 			// because leave_interrupt does LDA $FC before RTI. Clear I so
 			// olc6502::irq() will actually fire.
-			for (int nIrqTick = 0; nIrqTick < 1; ++nIrqTick) {
+			static double sIrqAccumSec = 0.0;
+			constexpr double kBbcSoundIrqPeriodSec = 0.01;  // 100 Hz
+			sIrqAccumSec += 0.025;  // game tick is ~25 ms; refine if needed
+			while (sIrqAccumSec >= kBbcSoundIrqPeriodSec) {
+				sIrqAccumSec -= kBbcSoundIrqPeriodSec;
 				uint16_t pcSave = Game.BBC.cpu.pc;
 				Game.BBC.ram[0x00FC] = Game.BBC.cpu.a;
 				Game.BBC.ram[0xFE4D] = 0x80;
-				Game.BBC.cpu.status &= ~olc6502::I;  // ensure I clear so irq() fires
+				Game.BBC.cpu.status &= ~olc6502::I;
 				Game.BBC.cpu.irq();
 				int nIrqCap = 200000;
 				do {

@@ -9,14 +9,16 @@ SN76489::SN76489(uint32_t outputSampleRate)
     // 250 kHz internal / outSR, scaled to Q16 fixed-point.
     mStepQ16 = (uint32_t)((250000ULL << 16) / outputSampleRate);
 
-    // 16-step ~2 dB per step attenuation table for one channel. With four
-    // channels mixed, peak amplitude is ~4 × 4096 = 16384 — leaves headroom.
+    // 16-step ~2 dB per step attenuation table for one channel. Per-channel
+    // peak ±8192. With four channels at full volume the mix can reach ±32768
+    // (full int16 range); we clip at mix time. Real tracks rarely run all four
+    // channels loud simultaneously, so headroom is normally fine.
     for (int i = 0; i < 16; ++i) {
         if (i == 15) {
             mVolumeLut[i] = 0;
         } else {
             // -2 dB per step → factor = pow(10, -2/20)
-            double level = 4096.0 * std::pow(10.0, -2.0 * i / 20.0);
+            double level = 8192.0 * std::pow(10.0, -2.0 * i / 20.0);
             mVolumeLut[i] = (int16_t)level;
         }
     }
