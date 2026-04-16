@@ -346,9 +346,22 @@ public:
 				while (!Game.BBC.cpu.complete());
 				if (Game.BBC.cpu.pc == GAME_RAM_SCREENFLASH) bScreenFlash = (Game.BBC.cpu.a == 0);
 				if (Game.BBC.cpu.pc == GAME_RAM_EARTHQUAKE) nEarthQuakeOffset = (Game.BBC.cpu.a & 1);
-				if (Game.BBC.cpu.pc == SAMPLE_TRAP_SCREAM)         Samples.Play(1 + (rand() & 3));
-				if (Game.BBC.cpu.pc == SAMPLE_TRAP_HOVERING_ROBOT) Samples.Play(6);
-				if (Game.BBC.cpu.pc == SAMPLE_TRAP_CLAWED_ROBOT)   Samples.Play(5);
+				// Sample traps: play the WAV AND jump past the rest of the 6502
+				// routine so its own play_sound / play_sample calls don't
+				// double up (the BBC scream sound on top of "Ow!" was audible
+				// and may have been contributing to the periodic thud).
+				if (Game.BBC.cpu.pc == SAMPLE_TRAP_SCREAM) {
+					Samples.Play(1 + (rand() & 3));
+					Game.BBC.cpu.pc = SAMPLE_TRAP_SCREAM_SKIP_TO;
+				}
+				if (Game.BBC.cpu.pc == SAMPLE_TRAP_HOVERING_ROBOT) {
+					Samples.Play(6);
+					Game.BBC.cpu.pc = SAMPLE_TRAP_HR_SKIP_TO;
+				}
+				if (Game.BBC.cpu.pc == SAMPLE_TRAP_CLAWED_ROBOT) {
+					Samples.Play(5);
+					Game.BBC.cpu.pc = SAMPLE_TRAP_CR_SKIP_TO;
+				}
 				if (--nCycleSafetyCap <= 0) break;
 			} while (Game.BBC.cpu.pc != GAME_RAM_STARTGAMELOOP);
 #else
@@ -357,9 +370,18 @@ public:
 				while (!Game.BBC.cpu.complete());
 				if (Game.BBC.cpu.pc == GAME_RAM_SCREENFLASH) bScreenFlash = (Game.BBC.cpu.a == 0);
 				if (Game.BBC.cpu.pc == GAME_RAM_EARTHQUAKE) nEarthQuakeOffset = (Game.BBC.cpu.a & 1);
-				if (Game.BBC.cpu.pc == SAMPLE_TRAP_SCREAM)         Samples.Play(1 + (rand() & 3));
-				if (Game.BBC.cpu.pc == SAMPLE_TRAP_HOVERING_ROBOT) Samples.Play(6);
-				if (Game.BBC.cpu.pc == SAMPLE_TRAP_CLAWED_ROBOT)   Samples.Play(5);
+				if (Game.BBC.cpu.pc == SAMPLE_TRAP_SCREAM) {
+					Samples.Play(1 + (rand() & 3));
+					Game.BBC.cpu.pc = SAMPLE_TRAP_SCREAM_SKIP_TO;
+				}
+				if (Game.BBC.cpu.pc == SAMPLE_TRAP_HOVERING_ROBOT) {
+					Samples.Play(6);
+					Game.BBC.cpu.pc = SAMPLE_TRAP_HR_SKIP_TO;
+				}
+				if (Game.BBC.cpu.pc == SAMPLE_TRAP_CLAWED_ROBOT) {
+					Samples.Play(5);
+					Game.BBC.cpu.pc = SAMPLE_TRAP_CR_SKIP_TO;
+				}
 			} while (Game.BBC.cpu.pc != GAME_RAM_STARTGAMELOOP);
 #endif
 

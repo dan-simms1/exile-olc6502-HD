@@ -58,8 +58,11 @@ const int      OBJECT_SLOTS           = 16;       // enhanced: original BBC 16-s
 // JSRs into SROM's $99EC ; play_sample, but we shortcut it in C++ since
 // the underlying SN76489 + sample DAC chain isn't emulated.
 const uint16_t SAMPLE_TRAP_SCREAM          = 0x24CA; // play_scream → samples 1-4 (Ow!/Ow/Ooh/Oooh!)
+const uint16_t SAMPLE_TRAP_SCREAM_SKIP_TO  = 0x24D4; // RTS in enhanced scream (bypass JSR $99EC)
 const uint16_t SAMPLE_TRAP_HOVERING_ROBOT  = 0xA4AB; // hovering robot dying → sample 6 (Radio die)
+const uint16_t SAMPLE_TRAP_HR_SKIP_TO      = 0xA4B0; // skip_sound label — jumps past play_sample
 const uint16_t SAMPLE_TRAP_CLAWED_ROBOT    = 0xA4F3; // clawed robot teleport → sample 5 (Destroy!)
+const uint16_t SAMPLE_TRAP_CR_SKIP_TO      = 0xA4F8; // skip_sound label — jumps past play_sample
 // play_sound entry — enhanced at $140F (vs standard's $13FA). We trap here,
 // read the 4-byte envelope block that follows the caller's JSR, and
 // synthesize a short square-wave tone via SampleManager.PlayTone().
@@ -105,8 +108,11 @@ const int      OBJECT_SLOTS           = 128;      // HD relocates to $9600+ with
 // (the 6502's underlying play_sound BBC sound calls remain silent until
 // we add an SN76489 emulator).
 const uint16_t SAMPLE_TRAP_SCREAM          = 0x2497; // scream → samples 1-4 (Ow!/Ow/Ooh/Oooh!)
+const uint16_t SAMPLE_TRAP_SCREAM_SKIP_TO  = 0x24A5; // RTS at end of scream (bypass both JSR $13FA calls)
 const uint16_t SAMPLE_TRAP_HOVERING_ROBOT  = 0x480E; // hovering robot 1-in-256 sound → sample 6 (Radio die)
+const uint16_t SAMPLE_TRAP_HR_SKIP_TO      = 0x4815; // skip past the JSR $13FA for hovering robot
 const uint16_t SAMPLE_TRAP_CLAWED_ROBOT    = 0x4858; // clawed robot teleport → sample 5 (Destroy!)
+const uint16_t SAMPLE_TRAP_CR_SKIP_TO      = 0x485F; // skip past the JSR $13FA for clawed teleport
 // play_sound entry — same address in both variants.
 const uint16_t SOUND_TRAP_PLAY_SOUND       = 0x13FA;
 #endif
