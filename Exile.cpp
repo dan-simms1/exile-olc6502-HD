@@ -682,6 +682,77 @@ void Exile::PatchEnhancedExileRAM() {
 	// Correct: EOR $D200,X (target_object).
 	BBC.ram[0x1E68] = 0x00; BBC.ram[0x1E69] = 0xD2;   // $1E67 EOR $D200,X
 
+	// --- Trampoline 4: $1AB3 (enh equiv of std $1A8F) — mask/shift this_object ---
+	// Original: ASL×4 then ORA $AA; ADC $C0. HD inserts AND #$0F before ASL×4
+	// (so 7-bit object slot doesn't overflow when shifted) and SKIPS the ORA $AA.
+	// Replace 3 bytes at $1AB3 (first 3 ASLs) with JMP. Trampoline at $FD40.
+	BBC.ram[0x1AB3] = 0x4C; BBC.ram[0x1AB4] = 0x40; BBC.ram[0x1AB5] = 0xFD;
+	BBC.ram[0xFD40] = 0x29; BBC.ram[0xFD41] = 0x0F;                          // AND #$0F
+	BBC.ram[0xFD42] = 0x0A;                                                  // ASL
+	BBC.ram[0xFD43] = 0x0A;                                                  // ASL
+	BBC.ram[0xFD44] = 0x0A;                                                  // ASL
+	BBC.ram[0xFD45] = 0x0A;                                                  // ASL (4 total)
+	BBC.ram[0xFD46] = 0x4C; BBC.ram[0xFD47] = 0xB9; BBC.ram[0xFD48] = 0x1A;  // JMP $1AB9 (skip ORA $AA, jump to ADC $C0)
+
+	// --- Trampoline 5: $1E6F (enh equiv of std $1E3C) — self-mod STA X (split target/target_object) ---
+	// Original 3 bytes: 9D 06 09  (STA $0906,X)
+	BBC.ram[0x1E6F] = 0x4C; BBC.ram[0x1E70] = 0x60; BBC.ram[0x1E71] = 0xFD;
+	BBC.ram[0xFD60] = 0x9D; BBC.ram[0xFD61] = 0x00; BBC.ram[0xFD62] = 0xD2;  // STA $D200,X (target_object NEW)
+	BBC.ram[0xFD63] = 0x8D; BBC.ram[0xFD64] = 0x6C; BBC.ram[0xFD65] = 0xFD;  // STA $FD6C (self-mod operand of LDA at $FD6B)
+	BBC.ram[0xFD66] = 0xA9; BBC.ram[0xFD67] = 0x00;                          // LDA #$00 (clear target flags)
+	BBC.ram[0xFD68] = 0x9D; BBC.ram[0xFD69] = 0x00; BBC.ram[0xFD6A] = 0xCA;  // STA $CA00,X (target = 0)
+	BBC.ram[0xFD6B] = 0xA9; BBC.ram[0xFD6C] = 0x00;                          // LDA #(self-modified to original A)
+	BBC.ram[0xFD6D] = 0x4C; BBC.ram[0xFD6E] = 0x72; BBC.ram[0xFD6F] = 0x1E;  // JMP $1E72 (return to after orig STA)
+
+	// --- Trampoline 6: $1F12 (enh equiv of std $1EDF) — self-mod STA Y ---
+	BBC.ram[0x1F12] = 0x4C; BBC.ram[0x1F13] = 0x80; BBC.ram[0x1F14] = 0xFD;
+	BBC.ram[0xFD80] = 0x99; BBC.ram[0xFD81] = 0x00; BBC.ram[0xFD82] = 0xD2;  // STA $D200,Y (target_object NEW)
+	BBC.ram[0xFD83] = 0x8D; BBC.ram[0xFD84] = 0x8C; BBC.ram[0xFD85] = 0xFD;  // STA $FD8C
+	BBC.ram[0xFD86] = 0xA9; BBC.ram[0xFD87] = 0x00;                          // LDA #$00
+	BBC.ram[0xFD88] = 0x99; BBC.ram[0xFD89] = 0x00; BBC.ram[0xFD8A] = 0xCA;  // STA $CA00,Y
+	BBC.ram[0xFD8B] = 0xA9; BBC.ram[0xFD8C] = 0x00;                          // LDA # (self-modified)
+	BBC.ram[0xFD8D] = 0x4C; BBC.ram[0xFD8E] = 0x15; BBC.ram[0xFD8F] = 0x1F;  // JMP $1F15
+
+	// --- Trampoline 7: $27E6 (enh equiv of std $27B7) — self-mod STA X (projectile target) ---
+	BBC.ram[0x27E6] = 0x4C; BBC.ram[0x27E7] = 0xA0; BBC.ram[0x27E8] = 0xFD;
+	BBC.ram[0xFDA0] = 0x9D; BBC.ram[0xFDA1] = 0x00; BBC.ram[0xFDA2] = 0xD2;
+	BBC.ram[0xFDA3] = 0x8D; BBC.ram[0xFDA4] = 0xAC; BBC.ram[0xFDA5] = 0xFD;
+	BBC.ram[0xFDA6] = 0xA9; BBC.ram[0xFDA7] = 0x00;
+	BBC.ram[0xFDA8] = 0x9D; BBC.ram[0xFDA9] = 0x00; BBC.ram[0xFDAA] = 0xCA;
+	BBC.ram[0xFDAB] = 0xA9; BBC.ram[0xFDAC] = 0x00;
+	BBC.ram[0xFDAD] = 0x4C; BBC.ram[0xFDAE] = 0xE9; BBC.ram[0xFDAF] = 0x27;  // JMP $27E9
+
+	// --- Trampoline 8: $A8A5 (enh equiv of std $4BFB) — self-mod STA X in SROM bank 0 ---
+	// SROM is in sideways bank 0; use BBC.write to route correctly.
+	BBC.write(0xA8A5, 0x4C); BBC.write(0xA8A6, 0xC0); BBC.write(0xA8A7, 0xFD);
+	BBC.ram[0xFDC0] = 0x9D; BBC.ram[0xFDC1] = 0x00; BBC.ram[0xFDC2] = 0xD2;
+	BBC.ram[0xFDC3] = 0x8D; BBC.ram[0xFDC4] = 0xCC; BBC.ram[0xFDC5] = 0xFD;
+	BBC.ram[0xFDC6] = 0xA9; BBC.ram[0xFDC7] = 0x00;
+	BBC.ram[0xFDC8] = 0x9D; BBC.ram[0xFDC9] = 0x00; BBC.ram[0xFDCA] = 0xCA;
+	BBC.ram[0xFDCB] = 0xA9; BBC.ram[0xFDCC] = 0x00;
+	BBC.ram[0xFDCD] = 0x4C; BBC.ram[0xFDCE] = 0xA8; BBC.ram[0xFDCF] = 0xA8;  // JMP $A8A8 (back into SROM bank — wait, JMP goes via Bus too)
+
+	// --- Trampoline 9: $3D54 (enh equiv of std $3CED) — zero target on lost target ---
+	// Original 3 bytes at $3D54: A6 AA  (LDX $AA, 2 bytes); $3D56: 86 0E (STX $0E, 2);
+	// $3D58: 86 3E (STX $3E, 2). Total 6 bytes to replace.
+	// Std HD replaces with: zero target_object stack at slot too.
+	BBC.ram[0x3D54] = 0x4C; BBC.ram[0x3D55] = 0xE0; BBC.ram[0x3D56] = 0xFD;  // JMP $FDE0
+	BBC.ram[0x3D57] = 0xEA; BBC.ram[0x3D58] = 0xEA; BBC.ram[0x3D59] = 0xEA;  // pad NOPs
+	BBC.ram[0xFDE0] = 0xA6; BBC.ram[0xFDE1] = 0xAA;                          // LDX $AA (this_object)
+	BBC.ram[0xFDE2] = 0x86; BBC.ram[0xFDE3] = 0x0E;                          // STX $0E (this_object_target_object)
+	BBC.ram[0xFDE4] = 0x86; BBC.ram[0xFDE5] = 0x3E;                          // STX $3E (this_object_target)
+	BBC.ram[0xFDE6] = 0x8E; BBC.ram[0xFDE7] = 0x00; BBC.ram[0xFDE8] = 0xD2;  // STX $D200,X — wait STX abs not abs,X. Use STA.
+	// Actually: zero target_object stack for this slot too. STX absolute writes to ONE address. We want $D200+X.
+	// Need: TXA; STA $D200,X. Or actually we want to write 0 (clear target). Hmm.
+	// Standard's $3CED zeros target/target_object for current_object. Let me redo:
+	BBC.ram[0xFDE0] = 0xA6; BBC.ram[0xFDE1] = 0xAA;                          // LDX $AA
+	BBC.ram[0xFDE2] = 0x86; BBC.ram[0xFDE3] = 0x0E;                          // STX $0E (this_object_target_object = this_object)
+	BBC.ram[0xFDE4] = 0x86; BBC.ram[0xFDE5] = 0x3E;                          // STX $3E (this_object_target = this_object)
+	BBC.ram[0xFDE6] = 0x8A;                                                  // TXA (A = this_object)
+	BBC.ram[0xFDE7] = 0x9D; BBC.ram[0xFDE8] = 0x00; BBC.ram[0xFDE9] = 0xD2;  // STA $D200,X (clear target_object stack entry)
+	BBC.ram[0xFDEA] = 0x9D; BBC.ram[0xFDEB] = 0x00; BBC.ram[0xFDEC] = 0xCA;  // STA $CA00,X (clear target stack entry)
+	BBC.ram[0xFDED] = 0x4C; BBC.ram[0xFDEE] = 0x5A; BBC.ram[0xFDEF] = 0x3D;  // JMP $3D5A (return)
+
 	// --- Now re-enable loop-bound bumps from 16 → 128 ---
 	BBC.ram[0x1E45] = 0x80;   // CPX #$10 → #$80  (update_objects exit)
 	BBC.ram[0x1E5D] = 0x7F;   // LDX #$0F → #$7F  (remove_object_for_touching)
