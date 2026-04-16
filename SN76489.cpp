@@ -6,24 +6,18 @@
 SN76489::SN76489(uint32_t outputSampleRate)
     : mOutSampleRate(outputSampleRate)
 {
-    // Internal counter tick rate. jsbeeb sets soundchipFreq = 4 MHz / 8 =
-    // 500 kHz but then sets waveDecrementPerSecond = soundchipFreq / 2 =
-    // 250 kHz, so the counter actually decrements at 250 kHz. Matches the
-    // SN76489 datasheet (4 MHz / 16). Output freq = 250000 / (2 × N).
-    mStepQ16 = (uint32_t)((250000ULL << 16) / outputSampleRate);
+    // jsbeeb's waveDecrementPerSecond = soundchipFreq/2 = 250 kHz. Each
+    // output sample, every channel's fractional counter decrements by
+    // (250000 / outSR). When it goes negative, reload (add divider) and
+    // toggle outputBit.
+    mSampleDecrement = 250000.0 / (double)outputSampleRate;
 
-    // 16-step ~2 dB per step attenuation table for one channel. Per-channel
-    // peak ±8192. With four channels at full volume the mix can reach ±32768
-    // (full int16 range); we clip at mix time. Real tracks rarely run all four
-    // channels loud simultaneously, so headroom is normally fine.
+    // jsbeeb volume table: each entry = pow(10, -0.1*i) / 4
+    // → vol 0 = 0.25 (max), vol 14 = 0.0114, vol 15 = 0.
+    // 4 channels at max sum to 1.0 = full Float32 range.
     for (int i = 0; i < 16; ++i) {
-        if (i == 15) {
-            mVolumeLut[i] = 0;
-        } else {
-            // -2 dB per step → factor = pow(10, -2/20)
-            double level = 8192.0 * std::pow(10.0, -2.0 * i / 20.0);
-            mVolumeLut[i] = (int16_t)level;
-        }
+        if (i == 15) mVolumeLut[i] = 0.0f;
+        else         mVolumeLut[i] = (float)(std::pow(10.0, -0.1 * i) / 4.0);
     }
 }
 
@@ -69,61 +63,67 @@ void SN76489::Write(uint8_t b) {
     }
 }
 
-inline void SN76489::StepInternal() {
-    // Advance one 250 kHz tick.
-    for (int c = 0; c < 3; ++c) {
-        if (--mCh[c].counter == 0) {
-            mCh[c].counter = mCh[c].divider;
-            mCh[c].polarity = -mCh[c].polarity;
-        }
+inline void SN76489::ShiftLfsr() {
+    // BBC SN76489AN: white noise = tap 0 XOR tap 1; periodic = tap 0.
+    // 15-bit shift register; feedback into bit 14.
+    unsigned newBit;
+    if (mNoiseCtrl & 0x04) {
+        newBit = (mNoiseLfsr ^ (mNoiseLfsr >> 1)) & 1;
+    } else {
+        newBit = mNoiseLfsr & 1;
     }
-    // Noise channel uses rate from mNoiseCtrl bits 0..1 OR ch2 frequency.
-    uint32_t noiseDiv;
-    switch (mNoiseCtrl & 0x03) {
-        case 0: noiseDiv = 16;  break;   // ÷512 of 8MHz becomes ÷16 of 250kHz
-        case 1: noiseDiv = 32;  break;
-        case 2: noiseDiv = 64;  break;
-        default: noiseDiv = mCh[2].divider; break;
-    }
-    if (--mCh[3].counter == 0) {
-        mCh[3].counter = noiseDiv ? noiseDiv : 1;
-        // Shift the LFSR. Per jsbeeb's BBC SN76489 implementation:
-        //   white noise   = tap 0 XOR tap 1   (NOT 0 XOR 3 like SMS variant)
-        //   periodic noise = tap 0 alone
-        // 15-bit shift register; feedback into bit 14.
-        unsigned outBit = mNoiseLfsr & 1;
-        unsigned newBit;
-        if (mNoiseCtrl & 0x04) {
-            newBit = ((mNoiseLfsr) ^ (mNoiseLfsr >> 1)) & 1;
-        } else {
-            newBit = mNoiseLfsr & 1;
-        }
-        mNoiseLfsr = (uint16_t)((mNoiseLfsr >> 1) | (newBit << 14));
-        mCh[3].polarity = (outBit ? -1 : 1);
-    }
+    mNoiseLfsr = (uint16_t)((mNoiseLfsr >> 1) | (newBit << 14));
 }
 
-inline int8_t SN76489::MixChannel(int ch) {
-    return mCh[ch].polarity;  // ±1
+// jsbeeb-style: counter decrements per OUTPUT SAMPLE (not per chip tick).
+// When it crosses zero, reload by adding `addAmount` and toggle outputBit.
+// Returns true if the bit toggled this sample (used by noise to shift LFSR).
+inline bool SN76489::DoChannelStep(int ch, uint32_t addAmount) {
+    double newValue = mCh[ch].counter - mSampleDecrement;
+    if (newValue < 0.0) {
+        // Re-add divider; max(0,...) guards against giant negative on first
+        // tick after a register write.
+        double reloaded = newValue + (double)addAmount;
+        if (reloaded < 0.0) reloaded = 0.0;
+        mCh[ch].counter   = reloaded;
+        mCh[ch].outputBit ^= 1;
+        return true;
+    }
+    mCh[ch].counter = newValue;
+    return false;
 }
 
 void SN76489::Render(int16_t* out, int numSamples) {
     std::lock_guard<std::mutex> lk(mMutex);
 
     for (int i = 0; i < numSamples; ++i) {
-        // Step the internal counters by mStepQ16 (250kHz / outSR) ticks.
-        mAccumQ16 += mStepQ16;
-        while (mAccumQ16 >= 0x10000) {
-            StepInternal();
-            mAccumQ16 -= 0x10000;
+        float sample = 0.0f;
+
+        // Three tone channels.
+        for (int c = 0; c < 3; ++c) {
+            DoChannelStep(c, mCh[c].divider);
+            sample += (float)mCh[c].outputBit * mVolumeLut[mCh[c].volume];
         }
-        int32_t mix = 0;
-        for (int c = 0; c < 4; ++c) {
-            mix += mCh[c].polarity * mVolumeLut[mCh[c].volume];
+
+        // Noise channel — addAmount picks rate or borrows tone-2 divider.
+        uint32_t noiseAdd;
+        switch (mNoiseCtrl & 0x03) {
+            case 0:  noiseAdd = 0x10; break;
+            case 1:  noiseAdd = 0x20; break;
+            case 2:  noiseAdd = 0x40; break;
+            default: noiseAdd = mCh[2].divider; break;
         }
-        // Soft clip to int16 range
-        if (mix >  32767) mix =  32767;
-        if (mix < -32768) mix = -32768;
-        out[i] = (int16_t)mix;
+        if (DoChannelStep(3, noiseAdd)) {
+            // Toggled this sample → shift LFSR
+            ShiftLfsr();
+        }
+        sample += (float)(mNoiseLfsr & 1) * mVolumeLut[mCh[3].volume];
+
+        // sample is unipolar 0..1; map to int16 with center at 0 and gain
+        // that uses ~half the int16 range so 4-channel peaks don't clip.
+        int32_t s = (int32_t)((sample - 0.5f) * 32767.0f);
+        if (s >  32767) s =  32767;
+        if (s < -32768) s = -32768;
+        out[i] = (int16_t)s;
     }
 }
