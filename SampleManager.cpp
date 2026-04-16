@@ -7,8 +7,19 @@
 #include <fstream>
 #include <sys/stat.h>
 
-SampleManager::SampleManager() {}
-SampleManager::~SampleManager() {}
+SampleManager::SampleManager() {
+    // Start the audio worker so Play() never blocks the game loop.
+    mWorker = std::thread([this]() { WorkerLoop(); });
+}
+
+SampleManager::~SampleManager() {
+    {
+        std::lock_guard<std::mutex> lk(mMutex);
+        mShutdown = true;
+    }
+    mCV.notify_all();
+    if (mWorker.joinable()) mWorker.join();
+}
 
 bool SampleManager::LoadWav(const std::string& path, WavData& out) {
     std::ifstream f(path, std::ios::binary);
@@ -126,8 +137,31 @@ namespace {
 
 void SampleManager::Play(int sampleId) {
     if (sampleId < 0 || sampleId >= (int)mSamples.size()) return;
+    if (mSamples[sampleId].pcm.empty()) return;
+    {
+        std::lock_guard<std::mutex> lk(mMutex);
+        // Cap the queue so a stuck audio device can't grow it without bound.
+        if (mPending.size() < 16) mPending.push(sampleId);
+    }
+    mCV.notify_one();
+}
+
+void SampleManager::WorkerLoop() {
+    while (true) {
+        int id;
+        {
+            std::unique_lock<std::mutex> lk(mMutex);
+            mCV.wait(lk, [&]{ return mShutdown || !mPending.empty(); });
+            if (mShutdown && mPending.empty()) return;
+            id = mPending.front();
+            mPending.pop();
+        }
+        PlayImpl(id);
+    }
+}
+
+void SampleManager::PlayImpl(int sampleId) {
     const auto& s = mSamples[sampleId];
-    if (s.pcm.empty()) return;
 
     AudioStreamBasicDescription desc = {};
     desc.mSampleRate       = (Float64)s.sampleRate;

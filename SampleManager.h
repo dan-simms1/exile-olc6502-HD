@@ -16,9 +16,14 @@
 //
 // All samples: 7813 Hz, 8-bit unsigned, mono.
 
-#include <string>
-#include <vector>
+#include <atomic>
+#include <condition_variable>
 #include <cstdint>
+#include <mutex>
+#include <queue>
+#include <string>
+#include <thread>
+#include <vector>
 
 class SampleManager {
 public:
@@ -28,7 +33,9 @@ public:
     // Load all N.wav files from a directory. Returns number of samples loaded.
     int LoadDirectory(const std::string& dir);
 
-    // Play sample by ID. Non-blocking. Overlapping plays are allowed.
+    // Enqueue sample by ID. Non-blocking — actual audio init runs on a
+    // background worker thread so the game loop never stalls on
+    // AudioQueueStart (which can take 50-200 ms cold).
     void Play(int sampleId);
 
     bool IsLoaded() const { return !mSamples.empty(); }
@@ -41,4 +48,13 @@ private:
     std::vector<WavData> mSamples;
 
     bool LoadWav(const std::string& path, WavData& out);
+    void WorkerLoop();
+    void PlayImpl(int sampleId);   // blocking implementation, runs on worker
+
+    // Worker thread + queue for non-blocking Play()
+    std::thread mWorker;
+    std::mutex mMutex;
+    std::condition_variable mCV;
+    std::queue<int> mPending;
+    std::atomic<bool> mShutdown{false};
 };

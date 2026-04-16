@@ -237,10 +237,9 @@ public:
 			bScreenFlash = false;
 
 			Game.BBC.cpu.pc = GAME_RAM_STARTGAMELOOP;
-			// Welcome sample fires once on the first real frame (after a few frames'
-			// settle so initialisation noise doesn't compete). Counter survives
-			// across game-loop iterations.
-			static int nWelcomeFrameCountdown = 60;  // ~1.2s at 50 fps
+			// Welcome sample fires once after a brief settle so initialisation
+			// audio doesn't compete. Counter survives across game-loop iterations.
+			static int nWelcomeFrameCountdown = 10;  // ~0.25s at 40 game ticks/s
 			if (nWelcomeFrameCountdown > 0 && --nWelcomeFrameCountdown == 0) {
 				Samples.Play(0);  // "Welcome to the land of the exile"
 			}
