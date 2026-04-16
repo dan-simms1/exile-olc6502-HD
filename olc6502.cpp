@@ -167,31 +167,8 @@ void olc6502::SetFlag(FLAGS6502 f, bool v)
 uint16_t olc6502::ReloactedStackAddress(uint16_t AddressToTest)
 {
 #ifdef EXILE_VARIANT_SIDEWAYS_RAM
-	// Sideways: mirror std's exact-base translation (only matches base addresses,
-	// not indexed offsets). For $0860,X with X=0, addr_abs = $0860 → translates
-	// to $C000. For X>0, addr_abs is e.g. $086x — no exact match, no translation,
-	// reads original $086x (which has CopyRAM source data still present).
-	// 18 stacks at relocated $C000+ pages (mirrors std's $9600+ but in OS ROM area).
-	switch (AddressToTest) {
-		case 0x0860: return 0xC000;
-		case 0x0870: return 0xC100;
-		case 0x0880: return 0xC200;
-		case 0x0891: return 0xC300;
-		case 0x08A3: return 0xC400;
-		case 0x08B4: return 0xC500;
-		case 0x08C6: return 0xC600;
-		case 0x08D6: return 0xC700;
-		case 0x08E6: return 0xC800;
-		case 0x08F6: return 0xC900;
-		case 0x0906: return 0xCA00;
-		case 0x0916: return 0xCB00;
-		case 0x0926: return 0xCC00;
-		case 0x0936: return 0xCD00;
-		case 0x0946: return 0xCE00;
-		case 0x0956: return 0xCF00;
-		case 0x0966: return 0xD000;
-		case 0x0976: return 0xD100;
-	}
+	// Sideways/enhanced: identity — enhanced ROM keeps the original 16-slot
+	// object stacks at $0860+. No relocation.
 	return AddressToTest;
 #else
 	switch(AddressToTest) {
