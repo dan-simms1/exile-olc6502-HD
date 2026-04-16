@@ -171,22 +171,26 @@ public:
 		//  the real game loop below should run; if it still drops to PC=0 we need to dig
 		//  further into boot state setup.)
 		// Process cheat and debug keys:
-		if (GetKey(olc::K1).bPressed) Game.Cheat_GetAllEquipment();
-		if (GetKey(olc::K2).bPressed) Game.Cheat_StoreAnyObject();
-		if (GetKey(olc::K3).bPressed) bShowDebugGrid = !bShowDebugGrid;
-		if (GetKey(olc::K4).bPressed) bShowDebugOverlay = !bShowDebugOverlay;
-		// Sample debug keys — F9 plays welcome; NP0..NP6 play samples 0..6.
-		if (GetKey(olc::F9).bPressed)  Samples.Play(0);  // "Welcome to the land of the exile"
-		if (GetKey(olc::F10).bPressed) Samples.Play(1);  // "Ow!"
-		if (GetKey(olc::F11).bPressed) Samples.Play(5);  // "Destroy!"
-		if (GetKey(olc::F12).bPressed) Samples.Play(6);  // "Radio die"
-		if (GetKey(olc::NP0).bPressed) Samples.Play(0);
-		if (GetKey(olc::NP1).bPressed) Samples.Play(1);
-		if (GetKey(olc::NP2).bPressed) Samples.Play(2);
-		if (GetKey(olc::NP3).bPressed) Samples.Play(3);
-		if (GetKey(olc::NP4).bPressed) Samples.Play(4);
-		if (GetKey(olc::NP5).bPressed) Samples.Play(5);
-		if (GetKey(olc::NP6).bPressed) Samples.Play(6);
+		if (!GetKey(olc::CTRL).bHeld) {
+			if (GetKey(olc::K1).bPressed) Game.Cheat_GetAllEquipment();
+			if (GetKey(olc::K2).bPressed) Game.Cheat_StoreAnyObject();
+			if (GetKey(olc::K3).bPressed) bShowDebugGrid = !bShowDebugGrid;
+			if (GetKey(olc::K4).bPressed) bShowDebugOverlay = !bShowDebugOverlay;
+		}
+		// Sample debug keys — CTRL + 0..6 plays samples 0..6.
+		// (Mac F-keys reserved for media controls by default; numpad not
+		//  on most MacBooks. SHIFT is a game input key. CTRL is already
+		//  used as a debug modifier (CTRL+arrows = move through walls),
+		//  so CTRL+digit fits the "CTRL = debug" convention.)
+		if (GetKey(olc::CTRL).bHeld) {
+			if (GetKey(olc::K0).bPressed) Samples.Play(0);  // "Welcome to the land of the exile"
+			if (GetKey(olc::K1).bPressed) Samples.Play(1);  // "Ow!"
+			if (GetKey(olc::K2).bPressed) Samples.Play(2);  // "Ow"
+			if (GetKey(olc::K3).bPressed) Samples.Play(3);  // "Ooh"
+			if (GetKey(olc::K4).bPressed) Samples.Play(4);  // "Oooh!"
+			if (GetKey(olc::K5).bPressed) Samples.Play(5);  // "Destroy!"
+			if (GetKey(olc::K6).bPressed) Samples.Play(6);  // "Radio die"
+		}
 
 		// (Runtime fullscreen toggle removed — Apple GLUT's glutFullScreen / glutReshapeWindow
 		//  crashes with NSInternalInconsistencyException on Tahoe. Use the macOS green button
