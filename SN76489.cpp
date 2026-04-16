@@ -97,12 +97,16 @@ void SN76489::Render(int16_t* out, int numSamples) {
     std::lock_guard<std::mutex> lk(mMutex);
 
     for (int i = 0; i < numSamples; ++i) {
+        // Center each channel's output around zero BEFORE mixing.
+        // outputBit ∈ {0,1}; (outputBit - 0.5) ∈ {-0.5, +0.5}; times vol
+        // gives a naturally bipolar square wave per channel with no DC
+        // component. Sum is already bipolar — no DC blocker needed, no
+        // transient ringing on volume changes, no thud when sounds end.
         float sample = 0.0f;
 
-        // Three tone channels.
         for (int c = 0; c < 3; ++c) {
             DoChannelStep(c, mCh[c].divider);
-            sample += (float)mCh[c].outputBit * mVolumeLut[mCh[c].volume];
+            sample += ((float)mCh[c].outputBit - 0.5f) * mVolumeLut[mCh[c].volume];
         }
 
         // Noise channel — addAmount picks rate or borrows tone-2 divider.
@@ -114,29 +118,13 @@ void SN76489::Render(int16_t* out, int numSamples) {
             default: noiseAdd = mCh[2].divider; break;
         }
         if (DoChannelStep(3, noiseAdd)) {
-            // Toggled this sample → shift LFSR
             ShiftLfsr();
         }
-        sample += (float)(mNoiseLfsr & 1) * mVolumeLut[mCh[3].volume];
+        sample += ((float)(mNoiseLfsr & 1) - 0.5f) * mVolumeLut[mCh[3].volume];
 
-        // sample is unipolar 0..1; run through a DC-blocker high-pass
-        // filter (real BBC's audio output is AC-coupled by a capacitor).
-        // Eliminates periodic click/thud from DC level jumps whenever
-        // channels transition between active and silent.
-        //   y[n] = x[n] - x[n-1] + alpha * y[n-1]
-        // alpha = 0.9975 → ~18 Hz cutoff at 44100 Hz — below audible.
-        //
-        // No post-gain: DC removal halves the peak amplitude of unipolar
-        // square waves, but this is exactly what the real BBC's output
-        // capacitor does too, so not compensating matches the real
-        // hardware's amplitude. Transient steps would clip at anything
-        // above 1× (DC blocker preserves step magnitude initially before
-        // decaying) — 2× was causing the "clipped button press" sound.
-        constexpr float kAlpha = 0.9975f;
-        float dc = sample - mDcPrevIn + kAlpha * mDcPrevOut;
-        mDcPrevIn  = sample;
-        mDcPrevOut = dc;
-        int32_t s = (int32_t)(dc * 32767.0f);
+        // sample is naturally bipolar around 0. Per-channel peak ±0.125;
+        // 4-channel peak ±0.5. Scale to int16.
+        int32_t s = (int32_t)(sample * 32767.0f);
         if (s >  32767) s =  32767;
         if (s < -32768) s = -32768;
         out[i] = (int16_t)s;
