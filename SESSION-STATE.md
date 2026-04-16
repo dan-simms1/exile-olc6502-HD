@@ -2,6 +2,23 @@
 
 Snapshot for picking up exile-olc6502-HD work in a fresh Claude session.
 
+## End-game ship fly-away (TGD's README note) — investigation
+
+README's bullet "*The ship doesn't fly away when you reach the end game, as the BBC scrolling is being ignored*" traced to:
+
+- Standard ROM `scroll_screen` at `$1F58` writes to CRTC registers 12/13 (screen-memory start-address high/low) via `STY $FE00` then `STA $FE01`. This is how the BBC shifts the displayed framebuffer in hardware.
+- `screen_offset` at `$00B0/$00B1` is the game's internal scroll tracker; `scroll_screen` derives the CRTC start-address bytes from it.
+- For the end-game sequence the game holds the ship object fixed in world-space and advances `screen_offset` so BBC hardware scrolls the world past it.
+- The HD port renders from game state (object arrays, not the BBC framebuffer) and the camera is fixed to the player — so the CRTC writes go to RAM and do nothing visible. Hence no fly-away.
+
+**To fix later:** trap writes to `$FE00/$FE01` in `Bus::write`, track the selected CRTC register and current start-address delta, and during fly-away use that delta as an additional camera offset in `Main.cpp` (alongside the existing `fScrollShiftX/fScrollShiftY`). Or alternatively, detect fly-away by a game flag (e.g. `$081E flooding_state` + player state) and directly read `$00B0/$00B1` as the camera pan.
+
+Mapping CRTC start-address → pixel offset needs the Mode 1 framebuffer layout (40 chars × 8 scanline bytes per char row = 320 bytes/row; 20 KB total). Scroll is typically vertical in Exile's ship-exit.
+
+Not yet implemented — captured here so next session has the trace.
+
+---
+
 ## Sound system status (latest as of 2026-04-16)
 
 Two-tier sound now in place — voice samples (Tom Seddon WAVs via SampleManager) plus a real SN76489 chip emulator wired through System VIA. Voice samples solid; SN76489 chip pitch/timing iterating against jsbeeb.

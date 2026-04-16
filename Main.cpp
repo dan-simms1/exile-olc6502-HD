@@ -253,15 +253,25 @@ public:
 
 		// BBC sound IRQ scheduler — fires the fake interrupt on real
 		// wall-clock time so envelope/duration ticks match a real BBC
-		// regardless of PGE/game-loop rate. 100 Hz mirrors the System VIA
-		// Timer 1 firing twice per VSync that drives the real chip's
-		// sound update chain. IRQ1V at $0204 already points to $12A6;
-		// $FE4D := 0x80 so handler's BPL fails and BVC takes the
-		// sound-update branch; A is stashed in $FC for leave_interrupt
-		// (LDA $FC before RTI). I flag is cleared so olc6502::irq() fires.
+		// regardless of PGE/game-loop rate.
+		//
+		// CRITICAL: real BBC fires TWO IRQs per VSync (timer-1 for the
+		// water-level palette swap, then VSync itself for frame end), but
+		// ONLY the VSync one runs the sound code. Handler at $12A6 does
+		// `BVC $12C8` — if V flag from $FE4D bit 6 is set (timer 1), it
+		// detours to the palette swap at $12B6 and EXITS EARLY via $12C5
+		// → $1392 leave_interrupt, never reaching the sound block at $1320.
+		// Only when V=0 does execution fall through to the sound update.
+		// So the actual sound-update rate on real hardware is ~50 Hz
+		// (one per VSync), NOT 100 Hz.
+		//
+		// We fire at 50 Hz with $FE4D := 0x80 (bit 7 set, bit 6 clear) so
+		// BPL fails and BVC takes — exactly the "sound path" of the real
+		// IRQ. A is stashed in $FC for leave_interrupt (LDA $FC before
+		// RTI). I flag is cleared so olc6502::irq() fires.
 		{
 			static double sIrqAccumSec = 0.0;
-			constexpr double kBbcSoundIrqPeriodSec = 0.01;  // 100 Hz
+			constexpr double kBbcSoundIrqPeriodSec = 0.02;  // 50 Hz (sound IRQ only runs on VSync path)
 			sIrqAccumSec += (double)fElapsedTime;
 			int nMaxBatch = 5;  // cap if we ever fall hugely behind
 			while (sIrqAccumSec >= kBbcSoundIrqPeriodSec && nMaxBatch-- > 0) {
