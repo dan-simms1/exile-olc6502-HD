@@ -126,17 +126,17 @@ void SN76489::Render(int16_t* out, int numSamples) {
         //   y[n] = x[n] - x[n-1] + alpha * y[n-1]
         // alpha = 0.9975 → ~18 Hz cutoff at 44100 Hz — below audible.
         //
-        // DC removal halves the effective peak amplitude of unipolar
-        // square waves (their DC component is half the peak-to-peak),
-        // so compensate with 2× post-filter gain. Net result matches
-        // the previous centred bipolar output's amplitude but without
-        // the -16383 DC pedestal.
+        // No post-gain: DC removal halves the peak amplitude of unipolar
+        // square waves, but this is exactly what the real BBC's output
+        // capacitor does too, so not compensating matches the real
+        // hardware's amplitude. Transient steps would clip at anything
+        // above 1× (DC blocker preserves step magnitude initially before
+        // decaying) — 2× was causing the "clipped button press" sound.
         constexpr float kAlpha = 0.9975f;
-        constexpr float kPostGain = 2.0f;
         float dc = sample - mDcPrevIn + kAlpha * mDcPrevOut;
         mDcPrevIn  = sample;
         mDcPrevOut = dc;
-        int32_t s = (int32_t)(dc * 32767.0f * kPostGain);
+        int32_t s = (int32_t)(dc * 32767.0f);
         if (s >  32767) s =  32767;
         if (s < -32768) s = -32768;
         out[i] = (int16_t)s;
