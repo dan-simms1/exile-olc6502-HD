@@ -2,6 +2,47 @@
 
 Snapshot for picking up exile-olc6502-HD work in a fresh Claude session.
 
+## Sound system status (latest as of 2026-04-16)
+
+Two-tier sound now in place — voice samples (Tom Seddon WAVs via SampleManager) plus a real SN76489 chip emulator wired through System VIA. Voice samples solid; SN76489 chip pitch/timing iterating against jsbeeb.
+
+**Files added since last snapshot:**
+- `samples/[0-6].wav` — Tom Seddon's voice samples (welcome, ows, oohs, destroy, radio die)
+- `SampleManager.{h,cpp}` — WAV loader + AudioToolbox playback, background worker thread, per-sample length-based cooldown
+- `SN76489.{h,cpp}` — chip emulator, jsbeeb-equivalent (fractional Float64 counters at output sample rate, unipolar bit×vol output, jsbeeb's volume table `pow(10, -0.1*i) / 4`)
+- `BBCSound.{h,cpp}` — owns SN76489 + continuous AudioQueue stream (3 buffers × 512 frames at 44100 Hz int16 mono = ~35 ms latency)
+
+**Bus changes:**
+- `Bus.h` adds nullable `BBCSound* sound` member
+- `Bus.cpp` intercepts writes to System VIA Port A ($FE4F) and Port B ($FE40); IC32 latch falling-edge on line 0 (sound chip /WE) latches Port A value into chip via SN76489::Write
+
+**Main.cpp changes:**
+- Added `SampleManager Samples` and `BBCSound Sound` members
+- `Game.BBC.sound = &Sound; Sound.Start()` after init
+- Sample debug keys: CTRL+0..6 (NOT F-keys; macOS reserves them for media controls)
+- Sample triggers in game loop via PC traps at `SAMPLE_TRAP_*` constants in `Exile.h` (variant-specific). Welcome plays once after a 10-frame settle.
+- Fake-IRQ scheduler at top of OnUserUpdate, accumulates real `fElapsedTime`, fires the BBC's IRQ chain ($12A6 → sound block at $1320) at 100 Hz target — needed because we don't run real interrupts (vsync is trapped via `cpu.pc == 0x1F66/$1F99` instead).
+
+**Known sound issues (not yet resolved):**
+- User perception: pitch/door-interweave frequency lower than reference BBC emulator (jsbeeb)
+- Random "thud noise every few seconds" — unexplained; could be AudioQueue underrun or a periodic write we're mishandling
+- After many tweaks (250 vs 500 kHz chip clock, 40-100 Hz IRQ, 22050 vs 44100 Hz output, 35 vs 185 ms latency) and matching jsbeeb's `generate()` line-for-line, still subtly off
+- **Recommended next step:** capture audio from a known-good emulator running Exile from `bmain.rom` for the SAME game event (e.g. door open) and FFT-compare with our output. Stop guessing rates from text descriptions.
+
+**Bundle structure (do NOT skip):**
+- `Exile.app/Contents/MacOS/exile` = standard variant binary
+- `Exile-Sideways.app/Contents/MacOS/Exile-Sideways` = sideways variant binary
+- `Exile.app/Contents/Resources/samples/*.wav` (and same in Sideways)
+- SampleManager searches CWD/samples then exe_dir/samples then exe_dir/../Resources/samples — works for both terminal and bundle launches
+- Always `open Exile.app` (or Sideways) — `./exile-standard` from terminal often fails to activate the GLUT window on macOS Tahoe
+
+**Makefile.mac:**
+- Per-variant object dirs `obj-std/` and `obj-side/` so building both can't silently mix .o files
+- `make -f Makefile.mac both` — builds both variants, auto-copies into `.app/Contents/MacOS/` if bundles exist
+- `make -f Makefile.mac exile-standard` / `exile-sideways` for individual
+
+---
+
 **Working dir:** `/Users/dansimms/Documents/C++ Exile/exile-olc6502-HD`
 **Canonical fork:** `github.com/dan-simms1/exile-olc6502-HD` — all commits pushed here.
 **Older clone:** `github.com/OxygenBubbles/exile-olc6502-HD` (stale — was just the initial fork).
