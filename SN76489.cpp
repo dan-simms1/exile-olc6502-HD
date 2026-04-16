@@ -37,12 +37,14 @@ void SN76489::Write(uint8_t b) {
         } else if (chan == 3) {
             // Noise channel control register
             mNoiseCtrl  = (uint8_t)(data & 0x07);
-            mNoiseLfsr  = 0x8000;  // reset shift register on mode change
+            mNoiseLfsr  = 0x4000;  // jsbeeb: reset to 1<<14
         } else {
-            // Tone channel: replace low 4 bits of divider, preserve high 6
+            // Tone channel: replace low 4 bits of divider, preserve high 6.
+            // Divider 0 is treated as 1024 (jsbeeb / SN76489 spec) so silenced
+            // channels don't suddenly run at maximum frequency.
             uint32_t hi = (mCh[chan].divider >> 4) & 0x3F;
             uint32_t v  = (hi << 4) | data;
-            mCh[chan].divider = v ? v : 1;
+            mCh[chan].divider = v ? v : 1024;
         }
     } else {
         // Data byte: 0xDDDDDDDD updates high 6 bits of last latched tone reg.
@@ -53,11 +55,11 @@ void SN76489::Write(uint8_t b) {
             // Spec says vol bytes are 4-bit only via reg-select; ignore.
         } else if (chan == 3) {
             mNoiseCtrl  = (uint8_t)(data & 0x07);
-            mNoiseLfsr  = 0x8000;
+            mNoiseLfsr  = 0x4000;
         } else {
             uint32_t lo = mCh[chan].divider & 0x0F;
             uint32_t v  = ((uint32_t)data << 4) | lo;
-            mCh[chan].divider = v ? v : 1;
+            mCh[chan].divider = v ? v : 1024;
         }
     }
 }
@@ -80,12 +82,14 @@ inline void SN76489::StepInternal() {
     }
     if (--mCh[3].counter == 0) {
         mCh[3].counter = noiseDiv ? noiseDiv : 1;
-        // Shift the LFSR. White noise (bit2 of ctrl set) = tap 0 XOR tap 3;
-        // periodic = just tap 0.
+        // Shift the LFSR. Per jsbeeb's BBC SN76489 implementation:
+        //   white noise   = tap 0 XOR tap 1   (NOT 0 XOR 3 like SMS variant)
+        //   periodic noise = tap 0 alone
+        // 15-bit shift register; feedback into bit 14.
         unsigned outBit = mNoiseLfsr & 1;
         unsigned newBit;
         if (mNoiseCtrl & 0x04) {
-            newBit = (mNoiseLfsr ^ (mNoiseLfsr >> 3)) & 1;
+            newBit = ((mNoiseLfsr) ^ (mNoiseLfsr >> 1)) & 1;
         } else {
             newBit = mNoiseLfsr & 1;
         }
