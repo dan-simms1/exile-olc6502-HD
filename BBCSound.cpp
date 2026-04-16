@@ -5,10 +5,14 @@
 #include <cstring>
 
 namespace {
-    constexpr uint32_t kSampleRate = 22050;
+    constexpr uint32_t kSampleRate = 44100;
     constexpr UInt32   kNumBuffers  = 3;
-    constexpr UInt32   kFramesPerBuffer = 256;    // ~12 ms of audio per buffer
+    constexpr UInt32   kFramesPerBuffer = 512;    // ~12 ms of audio per buffer
                                                   // (3 × 12 = ~35 ms total latency)
+                                                  // Higher sample rate prevents
+                                                  // chip output aliasing — real
+                                                  // BBC chip can produce tones
+                                                  // up to its prescaled clock /2.
     constexpr UInt32   kBytesPerFrame = sizeof(int16_t);
     constexpr UInt32   kBufferBytes = kFramesPerBuffer * kBytesPerFrame;
 
