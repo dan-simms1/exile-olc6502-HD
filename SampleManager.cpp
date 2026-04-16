@@ -1,9 +1,11 @@
 #include "SampleManager.h"
 
 #include <AudioToolbox/AudioToolbox.h>
+#include <mach-o/dyld.h>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <sys/stat.h>
 
 SampleManager::SampleManager() {}
 SampleManager::~SampleManager() {}
@@ -51,15 +53,51 @@ bool SampleManager::LoadWav(const std::string& path, WavData& out) {
     return true;
 }
 
-int SampleManager::LoadDirectory(const std::string& dir) {
+static bool FileExists(const std::string& path) {
+    struct stat st;
+    return stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode);
+}
+
+static std::string ExecutableDir() {
+    char buf[1024];
+    uint32_t sz = sizeof(buf);
+    if (_NSGetExecutablePath(buf, &sz) != 0) return "";
+    std::string p(buf);
+    auto pos = p.find_last_of('/');
+    if (pos == std::string::npos) return "";
+    return p.substr(0, pos);
+}
+
+int SampleManager::LoadDirectory(const std::string& dirHint) {
+    // Try the hint first, then sensible fall-backs so both terminal launches
+    // (CWD = repo) and .app-bundle launches (CWD = /) find the WAVs:
+    //   1. CWD/<hint>            (repo run from terminal)
+    //   2. <exe_dir>/<hint>      (binary copied somewhere with samples next to it)
+    //   3. <exe_dir>/../Resources/<hint>  (proper .app bundle layout)
+    std::string exeDir = ExecutableDir();
+    std::vector<std::string> candidates = {
+        dirHint,
+        exeDir + "/" + dirHint,
+        exeDir + "/../Resources/" + dirHint,
+    };
+    std::string dir;
+    for (const auto& c : candidates) {
+        if (FileExists(c + "/0.wav")) { dir = c; break; }
+    }
+    if (dir.empty()) {
+        fprintf(stderr, "SampleManager: could not find samples in any of:\n");
+        for (const auto& c : candidates) fprintf(stderr, "  %s\n", c.c_str());
+        return 0;
+    }
+
     mSamples.clear();
     for (int i = 0; i < 7; ++i) {
-        char path[512];
+        char path[1024];
         snprintf(path, sizeof(path), "%s/%d.wav", dir.c_str(), i);
         WavData w;
         if (!LoadWav(path, w)) {
             fprintf(stderr, "SampleManager: could not load %s\n", path);
-            mSamples.push_back({});  // keep index alignment
+            mSamples.push_back({});
             continue;
         }
         mSamples.push_back(std::move(w));
