@@ -50,6 +50,14 @@ private:
     std::mutex mMutex;             // serialize Write() vs Render()
     float mVolumeLut[16];          // unipolar volume table (max 0.25, mixed peak ~1.0)
 
+    // DC-blocker high-pass filter state. Real BBC's audio output is
+    // AC-coupled (capacitor); without this our output has a significant
+    // DC component (silence at unipolar 0 shifts to -0.5 bipolar = -16383),
+    // causing audible clicks whenever channels transition between active
+    // and silent. Classic y[n] = x[n] - x[n-1] + alpha * y[n-1].
+    float mDcPrevIn  = 0.0f;
+    float mDcPrevOut = 0.0f;
+
     inline void ShiftLfsr();
     inline bool DoChannelStep(int ch, uint32_t addAmount);
 };

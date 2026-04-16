@@ -119,11 +119,18 @@ void SN76489::Render(int16_t* out, int numSamples) {
         }
         sample += (float)(mNoiseLfsr & 1) * mVolumeLut[mCh[3].volume];
 
-        // sample is unipolar 0..1; map to int16 bipolar, centered on 0.
-        // No gain — chip vs voice-sample loudness is balanced by
-        // attenuating the voice samples on the AudioQueue side instead
-        // (see SampleManager::PlayData kVoiceGain).
-        int32_t s = (int32_t)((sample - 0.5f) * 32767.0f);
+        // sample is unipolar 0..1; run through a DC-blocker high-pass
+        // filter (real BBC's audio output is AC-coupled by a capacitor).
+        // Eliminates periodic click/thud from DC level jumps whenever
+        // channels transition between active and silent.
+        //   y[n] = x[n] - x[n-1] + alpha * y[n-1]
+        // alpha = 0.9975 → very low cutoff (~4 Hz at 44100 Hz sampling),
+        // passes everything audible untouched.
+        constexpr float kAlpha = 0.9975f;
+        float dc = sample - mDcPrevIn + kAlpha * mDcPrevOut;
+        mDcPrevIn  = sample;
+        mDcPrevOut = dc;
+        int32_t s = (int32_t)(dc * 32767.0f);
         if (s >  32767) s =  32767;
         if (s < -32768) s = -32768;
         out[i] = (int16_t)s;
