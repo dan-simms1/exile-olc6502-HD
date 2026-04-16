@@ -237,6 +237,14 @@ public:
 			bScreenFlash = false;
 
 			Game.BBC.cpu.pc = GAME_RAM_STARTGAMELOOP;
+			// Welcome sample fires once on the first real frame (after a few frames'
+			// settle so initialisation noise doesn't compete). Counter survives
+			// across game-loop iterations.
+			static int nWelcomeFrameCountdown = 60;  // ~1.2s at 50 fps
+			if (nWelcomeFrameCountdown > 0 && --nWelcomeFrameCountdown == 0) {
+				Samples.Play(0);  // "Welcome to the land of the exile"
+			}
+
 #ifdef EXILE_VARIANT_SIDEWAYS_RAM
 			// Frames now complete naturally back to $19DA (vsync trap at $1F99 in olc6502
 			// lets the wait_for_vsync loop exit). A generous cap (1M) is kept purely as a
@@ -247,6 +255,9 @@ public:
 				while (!Game.BBC.cpu.complete());
 				if (Game.BBC.cpu.pc == GAME_RAM_SCREENFLASH) bScreenFlash = (Game.BBC.cpu.a == 0);
 				if (Game.BBC.cpu.pc == GAME_RAM_EARTHQUAKE) nEarthQuakeOffset = (Game.BBC.cpu.a & 1);
+				if (Game.BBC.cpu.pc == SAMPLE_TRAP_SCREAM)         Samples.Play(1 + (rand() & 3));
+				if (Game.BBC.cpu.pc == SAMPLE_TRAP_HOVERING_ROBOT) Samples.Play(6);
+				if (Game.BBC.cpu.pc == SAMPLE_TRAP_CLAWED_ROBOT)   Samples.Play(5);
 				if (--nCycleSafetyCap <= 0) break;
 			} while (Game.BBC.cpu.pc != GAME_RAM_STARTGAMELOOP);
 #else
@@ -255,6 +266,9 @@ public:
 				while (!Game.BBC.cpu.complete());
 				if (Game.BBC.cpu.pc == GAME_RAM_SCREENFLASH) bScreenFlash = (Game.BBC.cpu.a == 0);
 				if (Game.BBC.cpu.pc == GAME_RAM_EARTHQUAKE) nEarthQuakeOffset = (Game.BBC.cpu.a & 1);
+				if (Game.BBC.cpu.pc == SAMPLE_TRAP_SCREAM)         Samples.Play(1 + (rand() & 3));
+				if (Game.BBC.cpu.pc == SAMPLE_TRAP_HOVERING_ROBOT) Samples.Play(6);
+				if (Game.BBC.cpu.pc == SAMPLE_TRAP_CLAWED_ROBOT)   Samples.Play(5);
 			} while (Game.BBC.cpu.pc != GAME_RAM_STARTGAMELOOP);
 #endif
 			// O------------------------------------------------------------------------------O

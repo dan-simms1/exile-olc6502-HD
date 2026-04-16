@@ -53,6 +53,13 @@ const uint16_t PALETTE_VALUE_LOOKUP   = 0x0B79;   // same address in both versio
 const uint16_t GAME_RAM_X_RANGES      = 0x14E7;   // waterline x-range table (enh shifts +$15 vs std)
 const uint16_t HD_SPRITE_TOO_TALL_BCS = 0x352D;   // enhanced equivalent of std's $34C6 BCS patch site
 const int      OBJECT_SLOTS           = 16;       // enhanced: original BBC 16-slot layout at $0860+
+// Sample-trigger PC traps. Whenever cpu.pc hits one of these we play the
+// corresponding Tom Seddon WAV. Enhanced ROM has matching 6502 code that
+// JSRs into SROM's $99EC ; play_sample, but we shortcut it in C++ since
+// the underlying SN76489 + sample DAC chain isn't emulated.
+const uint16_t SAMPLE_TRAP_SCREAM          = 0x24CA; // play_scream → samples 1-4 (Ow!/Ow/Ooh/Oooh!)
+const uint16_t SAMPLE_TRAP_HOVERING_ROBOT  = 0xA4AB; // hovering robot dying → sample 6 (Radio die)
+const uint16_t SAMPLE_TRAP_CLAWED_ROBOT    = 0xA4F3; // clawed robot teleport → sample 5 (Destroy!)
 #else
 // BBC Micro standard ROM addresses.
 const uint16_t GAME_RAM_INPUTS             = 0x126b;
@@ -89,6 +96,13 @@ const uint16_t PALETTE_VALUE_LOOKUP   = 0x0B79;
 const uint16_t GAME_RAM_X_RANGES      = 0x14D2;
 const uint16_t HD_SPRITE_TOO_TALL_BCS = 0x34C6;
 const int      OBJECT_SLOTS           = 128;      // HD relocates to $9600+ with 128-slot stacks
+// Sample-trigger PC traps for the standard ROM. play_sample doesn't exist
+// in standard, so these PCs trigger our C++ SampleManager.Play() instead
+// (the 6502's underlying play_sound BBC sound calls remain silent until
+// we add an SN76489 emulator).
+const uint16_t SAMPLE_TRAP_SCREAM          = 0x2497; // scream → samples 1-4 (Ow!/Ow/Ooh/Oooh!)
+const uint16_t SAMPLE_TRAP_HOVERING_ROBOT  = 0x480E; // hovering robot 1-in-256 sound → sample 6 (Radio die)
+const uint16_t SAMPLE_TRAP_CLAWED_ROBOT    = 0x4858; // clawed robot teleport → sample 5 (Destroy!)
 #endif
 
 struct XY {
