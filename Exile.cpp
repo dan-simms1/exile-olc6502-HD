@@ -560,9 +560,14 @@ void Exile::PatchEnhancedExileRAM() {
 	CopyRAM(0x0966, 0xD000, 0x10);   // object_stack_data_ptr   → $D000
 	CopyRAM(0x0976, 0xD100, 0x10);   // object_stack_extra      → $D100
 
-	// --- 192 instruction-operand rewrites: $08xx → $C0xx+ ---
-	// Each {site, new_base} relocates the operand of a 3-byte instruction from
-	// $08xx-base to the corresponding $C0xx-base page. Flat RAM — no paging.
+	// --- 192 byte rewrites DISABLED ---
+	// Mirroring std's approach: std only rewrites ~14 specific sites in
+	// PatchExileRAM and relies on its runtime ReloactedStackAddress safety net
+	// for ALL OTHER $08xx accesses. My blanket 192-site rewrite was MORE
+	// aggressive than std's design and introduced subtle behavioural differences
+	// (Triax → Finn, 2× Finns, etc). Re-enabling runtime safety net to handle
+	// non-trampoline accesses, same as std does.
+#if 0
 	static const uint16_t kMainObjSites[154][2] = {
 		{0x0BAB,0xC800},{0x0BB0,0xC900},{0x0BB4,0xC800},{0x0BB9,0xC900},{0x0BCD,0xC000},
 		{0x0C25,0xC300},{0x0C2B,0xC500},{0x0C34,0xCC00},{0x0C3F,0xC200},{0x0C45,0xC400},
@@ -621,6 +626,7 @@ void Exile::PatchEnhancedExileRAM() {
 		BBC.write(site + 1, (uint8_t)(newOp & 0xFF));
 		BBC.write(site + 2, (uint8_t)(newOp >> 8));
 	}
+#endif // 192-byte rewrites disabled
 
 	// ==========================================================================
 	// TRAMPOLINE PORTS: enhanced equivalents of std's 21 code patches
