@@ -251,6 +251,36 @@ public:
 		fGlobalTime = +fElapsedTime;
 		nFrameCounter = (nFrameCounter + 1) % 0xFFFF;
 
+		// BBC sound IRQ scheduler — fires the fake interrupt on real
+		// wall-clock time so envelope/duration ticks match a real BBC
+		// regardless of PGE/game-loop rate. 100 Hz mirrors the System VIA
+		// Timer 1 firing twice per VSync that drives the real chip's
+		// sound update chain. IRQ1V at $0204 already points to $12A6;
+		// $FE4D := 0x80 so handler's BPL fails and BVC takes the
+		// sound-update branch; A is stashed in $FC for leave_interrupt
+		// (LDA $FC before RTI). I flag is cleared so olc6502::irq() fires.
+		{
+			static double sIrqAccumSec = 0.0;
+			constexpr double kBbcSoundIrqPeriodSec = 0.01;  // 100 Hz
+			sIrqAccumSec += (double)fElapsedTime;
+			int nMaxBatch = 5;  // cap if we ever fall hugely behind
+			while (sIrqAccumSec >= kBbcSoundIrqPeriodSec && nMaxBatch-- > 0) {
+				sIrqAccumSec -= kBbcSoundIrqPeriodSec;
+				uint16_t pcSave = Game.BBC.cpu.pc;
+				Game.BBC.ram[0x00FC] = Game.BBC.cpu.a;
+				Game.BBC.ram[0xFE4D] = 0x80;
+				Game.BBC.cpu.status &= ~olc6502::I;
+				Game.BBC.cpu.irq();
+				int nIrqCap = 200000;
+				do {
+					do Game.BBC.cpu.clock();
+					while (!Game.BBC.cpu.complete());
+					if (--nIrqCap <= 0) break;
+				} while (Game.BBC.cpu.pc != pcSave);
+			}
+			if (sIrqAccumSec > 0.1) sIrqAccumSec = 0.0;  // hard reset on long stall
+		}
+
 		// O------------------------------------------------------------------------------O
 		// | Process keys - Part 1 (capture key presses with every PGE frame)             |
 		// O------------------------------------------------------------------------------O
@@ -323,37 +353,9 @@ public:
 			} while (Game.BBC.cpu.pc != GAME_RAM_STARTGAMELOOP);
 #endif
 
-			// Fake IRQ on real wall-clock time at ~100 Hz (BBC's actual sound
-			// update rate — System VIA Timer 1 fires twice per VSync). Each IRQ
-			// advances every sound channel's envelope by one stage and
-			// decrements sound_duration, so this rate is what determines how
-			// fast a sound effect plays. Pinning to wall-clock time rather than
-			// game-tick count means sound speed stays consistent regardless of
-			// the game-tick interval (currently 25 ms / 40 Hz, but PGE could
-			// drift).
-			//
-			// IRQ1V at $0204 already points to $12A6 (set by bmain.rom). Set
-			// $FE4D bit 7 (so handler's BPL fails) with bit 6 clear (so its
-			// BVC takes the branch to the sound-update path). Save A in $FC
-			// because leave_interrupt does LDA $FC before RTI. Clear I so
-			// olc6502::irq() will actually fire.
-			static double sIrqAccumSec = 0.0;
-			constexpr double kBbcSoundIrqPeriodSec = 0.025;  // 40 Hz (one per game tick)
-			sIrqAccumSec += 0.025;
-			while (sIrqAccumSec >= kBbcSoundIrqPeriodSec) {
-				sIrqAccumSec -= kBbcSoundIrqPeriodSec;
-				uint16_t pcSave = Game.BBC.cpu.pc;
-				Game.BBC.ram[0x00FC] = Game.BBC.cpu.a;
-				Game.BBC.ram[0xFE4D] = 0x80;
-				Game.BBC.cpu.status &= ~olc6502::I;
-				Game.BBC.cpu.irq();
-				int nIrqCap = 200000;
-				do {
-					do Game.BBC.cpu.clock();
-					while (!Game.BBC.cpu.complete());
-					if (--nIrqCap <= 0) break;
-				} while (Game.BBC.cpu.pc != pcSave);
-			}
+			// Fake IRQ scheduling moved out of this block — see top of
+			// OnUserUpdate so it accumulates true elapsed time, not just
+			// when the 25 ms game tick happens.
 			// O------------------------------------------------------------------------------O
 
 			// O------------------------------------------------------------------------------O
