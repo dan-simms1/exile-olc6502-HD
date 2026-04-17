@@ -567,8 +567,20 @@ public:
 			fScrollShiftX = 0;
 			fScrollShiftY = 0;
 
+			// End-game ship fly-away: when the player inserts the destinator, the game
+			// sets ship_moving at $19CF bit 7, locks Finn's Y at $3B and starts scrolling
+			// the BBC screen upward via CRTC R12/R13. In --hd we ignore CRTC scroll and
+			// the scene would appear static, so override the camera here: move it up at
+			// a constant rate so scenery above Finn scrolls into view and Finn drifts
+			// off the bottom of the screen (matching the BBC look).
+			bool bShipMoving = (Game.BBC.ram[0x19CF] & 0x80) != 0;
+			if (bShipMoving) {
+				constexpr float kFlyAwayScrollPerFrame = 2.0f;  // game-world units/tick
+				fCanvasY -= kFlyAwayScrollPerFrame;
+			}
+
 			Obj O = Game.Object(0); // Player
-			if (Game.BBC.ram[GAME_RAM_PLAYER_TELEPORTING] == 0) { // Not teleporting
+			if (!bShipMoving && Game.BBC.ram[GAME_RAM_PLAYER_TELEPORTING] == 0) { // Not teleporting
 				float fCanvasBorderX = fCanvasWidth * SCREEN_BORDER_SCALE; // Scroll if player moves within border
 				float fCanvasBorderY = fCanvasHeight * SCREEN_BORDER_SCALE; // Scroll if player moves within border
 
