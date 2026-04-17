@@ -1,12 +1,17 @@
 #include "SampleManager.h"
 
-#include <AudioToolbox/AudioToolbox.h>
-#include <mach-o/dyld.h>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <sys/stat.h>
+
+#if defined(__APPLE__)
+#include <AudioToolbox/AudioToolbox.h>
+#include <mach-o/dyld.h>
+#elif defined(__linux__)
+#include <unistd.h>
+#endif
 
 static int64_t NowMs() {
     using namespace std::chrono;
@@ -77,6 +82,7 @@ static bool FileExists(const std::string& path) {
 }
 
 static std::string ExecutableDir() {
+#if defined(__APPLE__)
     char buf[1024];
     uint32_t sz = sizeof(buf);
     if (_NSGetExecutablePath(buf, &sz) != 0) return "";
@@ -84,6 +90,17 @@ static std::string ExecutableDir() {
     auto pos = p.find_last_of('/');
     if (pos == std::string::npos) return "";
     return p.substr(0, pos);
+#elif defined(__linux__)
+    char buf[1024];
+    ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (n <= 0) return "";
+    buf[n] = '\0';
+    std::string p(buf);
+    auto pos = p.find_last_of('/');
+    return pos == std::string::npos ? "" : p.substr(0, pos);
+#else
+    return "";  // Windows: TODO — use GetModuleFileName
+#endif
 }
 
 int SampleManager::LoadDirectory(const std::string& dirHint) {
@@ -128,9 +145,9 @@ int SampleManager::LoadDirectory(const std::string& dirHint) {
     return loaded;
 }
 
+#if defined(__APPLE__)
 namespace {
     // AudioQueue callback: self-destructs queue when the single enqueued buffer finishes.
-    // We over-allocate a context to carry the queue pointer back to itself.
     struct PlayCtx {
         AudioQueueRef q;
     };
@@ -142,6 +159,7 @@ namespace {
         delete ctx;
     }
 }
+#endif
 
 void SampleManager::Play(int sampleId) {
     if (sampleId < 0 || sampleId >= (int)mSamples.size()) return;
@@ -250,6 +268,7 @@ void SampleManager::WorkerLoop() {
 }
 
 void SampleManager::PlayData(const WavData& s, float gain) {
+#if defined(__APPLE__)
     AudioStreamBasicDescription desc = {};
     desc.mSampleRate       = (Float64)s.sampleRate;
     desc.mFormatID         = kAudioFormatLinearPCM;
@@ -280,4 +299,8 @@ void SampleManager::PlayData(const WavData& s, float gain) {
 
     AudioQueueEnqueueBuffer(aq, buf, 0, nullptr);
     AudioQueueStart(aq, nullptr);
+#else
+    // No audio backend on this platform.
+    (void)s; (void)gain;
+#endif
 }

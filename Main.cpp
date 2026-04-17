@@ -93,7 +93,7 @@ public:
 	SampleManager Samples;
 	BBCSound      Sound;
 
-	// Mode A only: the BBC's own $4000-$7FFF framebuffer decoded into a 128×256 sprite
+	// --standard / --enhanced only: the BBC's own $4000-$7FFF framebuffer decoded into a 128×256 sprite
 	// and blit to the window each frame. See DrawBBCFramebuffer().
 	std::unique_ptr<olc::Sprite> sprBBCScreen;
 	std::unique_ptr<olc::Decal>  decBBCScreen;
@@ -157,7 +157,8 @@ public:
 	}
 
 	// Decode Exile's framebuffer (16 KB, $4000-$7FFF) into sprBBCScreen and blit to the window.
-	// Used only in Mode A — the BBC's own plotter writes here naturally when HD patches are skipped.
+	// Used by --standard (8 KB ring at $6000) and --enhanced (16 KB ring at $4000). The BBC's own
+	// plotter writes into screen memory naturally since HD patches are only applied for --hd.
 	//
 	// Exile uses a CUSTOM 16 KB screen mode: R1 = 64 chars/line (not Mode 2's 80) placed at
 	// &4000-&7FFF. This is visible in the disassembly: wipe_screen_loop ($01D5) clears
@@ -270,10 +271,10 @@ public:
 		olc::PixelGameEngine::SetDrawTarget(nNull);
 
 		// Load Exile RAM based on runtime mode:
-		//   Mode A: bmain.rom — standard BBC Micro, native rendering, 8 KB screen $6000.
-		//   Mode B: sram.rom + srom.rom via sideways paging — enhanced BBC Master, native
-		//           rendering, 16 KB screen $4000.
-		//   Mode C: bmain.rom + HD patches — standard ROM + C++ HD renderer (128 objects).
+		//   --standard (A): bmain.rom — standard BBC Micro, native rendering, 8 KB screen $6000.
+		//   --enhanced (B): sram.rom + srom.rom via sideways paging — enhanced BBC Master,
+		//                   native rendering, 16 KB screen $4000.
+		//   --hd       (C): bmain.rom + HD patches — standard ROM + C++ HD renderer (128 objects).
 		if (gMode == 'B') {
 			// Enhanced / sideways-RAM layout. Load exactly as the old sideways variant did.
 			Game.BBC.bSidewaysPaging = true;
@@ -296,7 +297,7 @@ public:
 			if (gMode == 'C') {
 				Game.PatchExileRAM();  // HD 128-object + C++ renderer
 			} else {
-				Game.BBC.cpu.bDisableStackRelocation = true;  // native Mode A
+				Game.BBC.cpu.bDisableStackRelocation = true;  // native --standard
 			}
 		}
 		Game.Initialise(gMode != 'C');  // Modes A and B skip HD sprite-sheet + grid-gen pre-pass
@@ -436,7 +437,7 @@ public:
 			// audio doesn't compete. Counter survives across game-loop iterations.
 			static int nWelcomeFrameCountdown = 10;  // ~0.25s at 40 game ticks/s
 			if (nWelcomeFrameCountdown > 0 && --nWelcomeFrameCountdown == 0) {
-				if (gMode != 'A') Samples.Play(0);  // Mode A = pure BBC, no voice sample
+				if (gMode != 'A') Samples.Play(0);  // --standard = pure BBC, no voice sample
 			}
 
 			// Unified game-loop driver. Runs CPU instructions until PC cycles back to
@@ -754,7 +755,7 @@ int main(int argc, char* argv[])
 		}
 	}
 
-	// Mode B (enhanced/sram.rom) uses different ROM addresses. Overwrite the defaults.
+	// --enhanced (sram.rom) uses different ROM addresses. Overwrite the defaults.
 	if (gMode == 'B') {
 		gStartGameLoop       = 0x19DA;
 		gScreenFlashTrap     = 0x1FD9;

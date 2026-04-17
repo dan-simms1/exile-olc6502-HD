@@ -796,7 +796,7 @@ void Exile::DrawExileSprite(olc::PixelGameEngine* PGE,
 
 void Exile::Initialise(bool bFaithful)
 {
-	// Mode A (bFaithful=true) skips expensive HD sprite-sheet and background-grid generation,
+	// --standard or --enhanced (bFaithful=true) skips expensive HD sprite-sheet and background-grid generation,
 	// since it renders the BBC framebuffer directly instead of from extracted game state.
 	// Startup goes from ~5s to near-instant.
 	if (!bFaithful) {
@@ -940,6 +940,9 @@ uint16_t Exile::WaterLevel(uint8_t x)
 			return nWaterLevel;
 		}
 	}
+	// Fallback: if x is below all range thresholds, return the nominal water level
+	// for range 1 (the default). Prevents falling off the end of the function.
+	return nWaterLevel_1;
 }
 
 void Exile::Cheat_GetAllEquipment() 

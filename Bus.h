@@ -32,14 +32,14 @@ public: // Devices on Bus
 
 	// Video ULA palette: logical colour (0-15) → raw physical nibble as written to $FE21.
 	// The low 3 bits are inverted (0 = on) and encode B,G,R (bit0=Blue, bit1=Green, bit2=Red);
-	// Mode A renderer XORs with 0x07 before mapping to RGB. Pre-seed to "all-black" default
+	// Native BBC renderer XORs with 0x07 before mapping to RGB. Pre-seed to "all-black" default
 	// (raw nibble 0x07 = BGR all off) so the first frame before any $FE21 write isn't white.
 	std::array<uint8_t, 16> videoULAPalette{{0x07,0x07,0x07,0x07,0x07,0x07,0x07,0x07,
 	                                          0x07,0x07,0x07,0x07,0x07,0x07,0x07,0x07}};
 
 	// CRTC scroll state: R12/R13 hold the 14-bit MA (memory-address) start. Exile uses a
 	// custom 16 KB screen at &4000-&7FFF → MA = 0x0800 (byte address = MA*8 = 0x4000).
-	// Pre-set so the first Mode A render works before the game (post-boot snapshot) touches
+	// Pre-set so the first native-rendered frame works before the game (post-boot snapshot) touches
 	// the CRTC; Modes B/C don't look at crtcR12/R13.
 	uint8_t  crtcSelectedReg = 0;     // which CRTC register is being written ($FE00 selects)
 	uint8_t  crtcR1  = 64;            // R1: displayed chars per line (default matches enhanced 64)

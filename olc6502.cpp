@@ -159,7 +159,7 @@ void olc6502::SetFlag(FLAGS6502 f, bool v)
 		status &= ~f;
 }
 
-uint16_t olc6502::ReloactedStackAddress(uint16_t AddressToTest)
+uint16_t olc6502::RelocatedStackAddress(uint16_t AddressToTest)
 {
 	// --standard and --enhanced (native rendering) run the unpatched game which still uses the original
 	// stacks at $0860+. Bypass the HD redirect entirely, otherwise every object-stack
@@ -208,7 +208,7 @@ uint8_t olc6502::ZP0()
 	pc++;
 	addr_abs &= 0x00FF;
 
-	addr_abs = ReloactedStackAddress(addr_abs); //Temporary
+	addr_abs = RelocatedStackAddress(addr_abs); //Temporary
 
 	return 0;
 }
@@ -219,7 +219,7 @@ uint8_t olc6502::ZPX()
 	pc++;
 	addr_abs &= 0x00FF;
 
-	addr_abs = ReloactedStackAddress(addr_abs); //Temporary
+	addr_abs = RelocatedStackAddress(addr_abs); //Temporary
 
 	return 0;
 }
@@ -230,7 +230,7 @@ uint8_t olc6502::ZPY()
 	pc++;
 	addr_abs &= 0x00FF;
 
-	addr_abs = ReloactedStackAddress(addr_abs); //Temporary
+	addr_abs = RelocatedStackAddress(addr_abs); //Temporary
 
 	return 0;
 }
@@ -242,7 +242,7 @@ uint8_t olc6502::REL()
 	if (addr_rel & 0x80)
 		addr_rel |= 0XFF00;
 
-	addr_abs = ReloactedStackAddress(addr_abs); //Temporary
+	addr_abs = RelocatedStackAddress(addr_abs); //Temporary
 
 	return 0;
 }
@@ -255,7 +255,7 @@ uint8_t olc6502::ABS()
 	pc++;
 
 	addr_abs = (hi << 8) | lo;
-	addr_abs = ReloactedStackAddress(addr_abs); //Temporary
+	addr_abs = RelocatedStackAddress(addr_abs); //Temporary
 
 	return 0;
 }
@@ -268,7 +268,7 @@ uint8_t olc6502::ABX()
 	pc++;
 
 	addr_abs = (hi << 8) | lo;
-	addr_abs = ReloactedStackAddress(addr_abs); //Temporary
+	addr_abs = RelocatedStackAddress(addr_abs); //Temporary
 
 	addr_abs += x;
 
@@ -286,7 +286,7 @@ uint8_t olc6502::ABY()
 	pc++;
 
 	addr_abs = (hi << 8) | lo;
-	addr_abs = ReloactedStackAddress(addr_abs); //Temporary
+	addr_abs = RelocatedStackAddress(addr_abs); //Temporary
 
 	addr_abs += y;
 
@@ -339,7 +339,7 @@ uint8_t olc6502::IZY()
 	uint16_t hi = read((t +1) & 0x00FF);
 
 	addr_abs = (hi << 8) | lo;
-	addr_abs = ReloactedStackAddress(addr_abs); //Temporary
+	addr_abs = RelocatedStackAddress(addr_abs); //Temporary
 
 	addr_abs += y;
 

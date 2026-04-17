@@ -76,10 +76,10 @@ public:
 
 	bool complete();
 
-	// Mode A (native BBC rendering) runs the UNPATCHED game code, which expects object
+	// --standard / --enhanced (native BBC rendering) runs the UNPATCHED game code, which expects object
 	// stacks at their original $0860+ addresses. The HD build (Modes B/C) relocates
-	// those stacks to $9600+ via PatchExileRAM() + the ReloactedStackAddress redirect
-	// below. Mode A sets this to true so the redirect is bypassed — otherwise every
+	// those stacks to $9600+ via PatchExileRAM() + the RelocatedStackAddress redirect
+	// below. --standard and --enhanced set this to true so the redirect is bypassed — otherwise every
 	// object-stack read returns zero (never-initialised $9600+ RAM).
 	bool bDisableStackRelocation = false;
 
@@ -92,7 +92,7 @@ private:
 	uint8_t GetFlag(FLAGS6502 f);
 	void SetFlag(FLAGS6502 f, bool v);
 
-	uint16_t ReloactedStackAddress(uint16_t AddressToTest); //TD
+	uint16_t RelocatedStackAddress(uint16_t AddressToTest); //TD
 
 	struct INSTRUCTION
 	{

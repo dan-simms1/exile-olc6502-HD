@@ -1,21 +1,21 @@
 #include "BBCSound.h"
 
-#include <AudioToolbox/AudioToolbox.h>
 #include <cstdio>
 #include <cstring>
 
+#if defined(__APPLE__)
+#include <AudioToolbox/AudioToolbox.h>
+#endif
+
 namespace {
     constexpr uint32_t kSampleRate = 44100;
-    constexpr UInt32   kNumBuffers  = 3;
-    constexpr UInt32   kFramesPerBuffer = 512;    // ~12 ms of audio per buffer
+    constexpr uint32_t kNumBuffers  = 3;
+    constexpr uint32_t kFramesPerBuffer = 512;    // ~12 ms of audio per buffer
                                                   // (3 × 12 = ~35 ms total latency)
-                                                  // Higher sample rate prevents
-                                                  // chip output aliasing — real
-                                                  // BBC chip can produce tones
-                                                  // up to its prescaled clock /2.
-    constexpr UInt32   kBytesPerFrame = sizeof(int16_t);
-    constexpr UInt32   kBufferBytes = kFramesPerBuffer * kBytesPerFrame;
+    constexpr uint32_t kBytesPerFrame = sizeof(int16_t);
+    constexpr uint32_t kBufferBytes = kFramesPerBuffer * kBytesPerFrame;
 
+#if defined(__APPLE__)
     struct AudioState {
         AudioQueueRef        queue = nullptr;
         AudioQueueBufferRef  buffers[kNumBuffers] = {};
@@ -30,6 +30,13 @@ namespace {
         buf->mAudioDataByteSize = kBufferBytes;
         AudioQueueEnqueueBuffer(aq, buf, 0, nullptr);
     }
+#else
+    // Non-Apple stub: no audio backend yet. Game runs silent on Linux/Windows.
+    struct AudioState {
+        SN76489* chip = nullptr;
+        bool running = false;
+    };
+#endif
 }
 
 BBCSound::BBCSound() : mChip(kSampleRate) {}
@@ -48,6 +55,7 @@ void BBCSound::Start() {
     s->chip = &mChip;
     mAudioState = s;
 
+#if defined(__APPLE__)
     AudioStreamBasicDescription fmt = {};
     fmt.mSampleRate       = (Float64)kSampleRate;
     fmt.mFormatID         = kAudioFormatLinearPCM;
@@ -65,9 +73,8 @@ void BBCSound::Start() {
         return;
     }
 
-    // Pre-fill buffers with silence (chip starts with vol=15 = silent)
-    // and enqueue them all.
-    for (UInt32 i = 0; i < kNumBuffers; ++i) {
+    // Pre-fill buffers with silence and enqueue them all.
+    for (uint32_t i = 0; i < kNumBuffers; ++i) {
         st = AudioQueueAllocateBuffer(s->queue, kBufferBytes, &s->buffers[i]);
         if (st != noErr) {
             fprintf(stderr, "BBCSound: AudioQueueAllocateBuffer %u failed (%d)\n", i, (int)st);
@@ -82,17 +89,23 @@ void BBCSound::Start() {
     AudioQueueStart(s->queue, nullptr);
     fprintf(stderr, "BBCSound: SN76489 stream started (%u Hz, %u-frame buffers)\n",
             kSampleRate, kFramesPerBuffer);
+#else
+    // TODO: non-Apple audio backend (miniaudio / ALSA / WASAPI). Game runs silent.
+    fprintf(stderr, "BBCSound: no audio backend on this platform — running silent\n");
+#endif
 }
 
 void BBCSound::Stop() {
     auto* s = static_cast<AudioState*>(mAudioState);
     if (!s || !s->running) return;
     s->running = false;
+#if defined(__APPLE__)
     if (s->queue) {
         AudioQueueStop(s->queue, true);
         AudioQueueDispose(s->queue, true);
         s->queue = nullptr;
     }
+#endif
 }
 
 void BBCSound::OnPortAWrite(uint8_t value) {
