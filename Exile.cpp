@@ -740,34 +740,33 @@ void Exile::DrawExileSprite(olc::PixelGameEngine* PGE,
 	// Check cache
 	//---------------------------------------------------------------------------------
 	if (SpriteDecals.find(nSpriteKey) == SpriteDecals.end()) {
-		// Draw sprite from scratch if the sprite key combination has not yet been cached
+		// Draw sprite from scratch if the sprite key combination has not yet been cached.
 
-		// Save draw target:
 		olc::Sprite* sprDrawTarget = PGE->GetDrawTarget();
 
-		//Extract width and height (via Bus so paged sideways RAM works for enhanced):
+		// Extract width and height (via Bus so paged sideways RAM works for enhanced):
 		uint8_t nWidth  = BBC.read((uint16_t)(SPRITE_WIDTH_LOOKUP + nSpriteID));
 		uint8_t nHeight = BBC.read((uint16_t)(SPRITE_HEIGHT_LOOKUP + nSpriteID));
 		nWidth = (nWidth >> 4);
 		nHeight = (nHeight >> 3);
 
-		//Create and draw sprite:
-		sprSprite = new olc::Sprite((nWidth + 1) * 2, (nHeight + 1));
-		PGE->SetDrawTarget(sprSprite);
+		auto cachedSprite = std::make_unique<olc::Sprite>((nWidth + 1) * 2, (nHeight + 1));
+		PGE->SetDrawTarget(cachedSprite.get());
 		PGE->Clear(olc::BLANK);
 
 		DrawExileSprite_PixelByPixel(PGE, nSpriteID, 0, 0, nPaletteID, 0, 0, nTeleporting, nTimer);
 
-		decSprite = new olc::Decal(sprSprite);
-		SpriteDecals.insert(std::make_pair(nSpriteKey, decSprite));
+		auto cachedDecal = std::make_unique<olc::Decal>(cachedSprite.get());
+		sprSprite = cachedSprite.get();
+		decSprite = cachedDecal.get();
+		SpriteDecals[nSpriteKey] = CachedDecal{ std::move(cachedSprite), std::move(cachedDecal) };
 
-		// Restore draw target:
 		PGE->SetDrawTarget(sprDrawTarget);
-	} 
+	}
 	else {
-		// Or restored cached sprite
-		sprSprite = SpriteDecals[nSpriteKey]->sprite;
-		decSprite = SpriteDecals[nSpriteKey];
+		auto& cached = SpriteDecals[nSpriteKey];
+		sprSprite = cached.sprite.get();
+		decSprite = cached.decal.get();
 	}
 	//---------------------------------------------------------------------------------
 
@@ -778,8 +777,9 @@ void Exile::DrawExileSprite(olc::PixelGameEngine* PGE,
 	float fHorizontalZoom = fZoom * 1.005; // 1.005 multiple seems to make the scrolling smoother?
 	float fVerticalZoom = fZoom * 1.005; // 1.005 multiple seems to make the scrolling smoother?
 
-	if (int(fHorizontalZoom) != fHorizontalZoom) fZoom * 1.005; // If non-integer, scale by an extra 1.005 to help avoid gaps in tiles;
-	if (int(fVerticalZoom) != fVerticalZoom) fZoom * 1.005; // If non-integer, scale by an extra 1.005 to help avoid gaps in tiles;
+	// If non-integer, scale by an extra 1.005 to avoid sub-pixel gaps between tiles.
+	if (int(fHorizontalZoom) != fHorizontalZoom) fHorizontalZoom *= 1.005f;
+	if (int(fVerticalZoom)   != fVerticalZoom)   fVerticalZoom   *= 1.005f;
 
 	if (nHorizontalInvert == 1) {
 		nScreenX = nScreenX + round(fHorizontalZoom * (sprSprite->width));

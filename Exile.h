@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <string>
 
 const int GAME_TILE_WIDTH = 32;
@@ -99,7 +100,11 @@ private:
 	Tile TileGrid[256][256];
 	uint8_t nSpriteSheet[128][128];
 
-	std::map<uint32_t, olc::Decal*> SpriteDecals;
+	struct CachedDecal {
+		std::unique_ptr<olc::Sprite> sprite;
+		std::unique_ptr<olc::Decal>  decal;
+	};
+	std::map<uint32_t, CachedDecal> SpriteDecals;
 
 	void DrawExileSprite_PixelByPixel(olc::PixelGameEngine* PGE, uint8_t nSpriteID, int32_t nX, int32_t nY, uint8_t nPaletteID, uint8_t nHorizontalInvert = 0, uint8_t nVerticalInvert = 0, uint8_t nTeleporting = 0, uint8_t nTimer = 0);
 
