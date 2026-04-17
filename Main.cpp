@@ -182,21 +182,34 @@ public:
 	// wraps as a circular buffer.
 	void DrawBBCFramebuffer()
 	{
-		// Standard BBC Exile uses an 8 KB screen ring at $6000-$7FFF (what bmain.rom's
-		// $01D0 wipes). $4000-$5FFF is off-screen code/data — including it in the decode
-		// makes CRTC scroll wrap through it, showing raw bmain.rom bytes as a rainbow
-		// middle-band of garbage. R1=64 chars × R9+1=8 scanlines × R6=16 rows = 8192 = 8 KB.
-		const int  SCREEN_BASE      = 0x6000;
-		const int  SCREEN_SIZE      = 0x2000;   // 8 KB ring
+		// Mode A: native bmain.rom uses 8 KB ring at $6000-$7FFF (128 scanlines).
+		// Mode B: PatchModeB relocates the plotter to a 16 KB ring at $C000-$FFFF,
+		// giving the enhanced-ROM's 256 scanlines without loading sram.rom.
+		const bool bModeB   = (gMode == 'B');
+		const int  SCREEN_BASE      = bModeB ? 0xC000 : 0x6000;
+		const int  SCREEN_SIZE      = bModeB ? 0x4000 : 0x2000;   // 16 KB vs 8 KB ring
 		const int  CHARS_PER_ROW    = 64;
-		const int  CHAR_ROWS        = 16;
+		const int  CHAR_ROWS        = bModeB ? 32 : 16;
 		const int  PIXELS_WIDE      = CHARS_PER_ROW * 2;   // 128
-		const int  PIXELS_TALL      = CHAR_ROWS * 8;       // 128
+		const int  PIXELS_TALL      = CHAR_ROWS * 8;       // 128 or 256
 
 		uint16_t crtcMA    = ((uint16_t)Game.BBC.crtcR12 << 8) | Game.BBC.crtcR13; // 14-bit
-		uint16_t startByte = (crtcMA * 8) & 0x7FFF;        // byte address of top-left
-		// Express as offset within the 16 KB circular screen buffer at [$4000, $8000).
+		uint16_t startByte = (uint16_t)((crtcMA * 8) & 0x7FFF);
 		int screenOffset = (startByte - SCREEN_BASE) & (SCREEN_SIZE - 1);
+
+		static int nDbgB = 0;
+		if (gMode == 'B' && (nDbgB == 30 || nDbgB == 120)) {
+			std::cout << "Mode B f=" << nDbgB
+			          << std::hex << " R12=$" << (int)Game.BBC.crtcR12
+			          << " R13=$" << (int)Game.BBC.crtcR13
+			          << " crtcMA=$" << crtcMA
+			          << " startByte=$" << startByte
+			          << " scrollOff=$" << screenOffset
+			          << " $B0=$" << (int)Game.BBC.ram[0xB0]
+			          << " $B1=$" << (int)Game.BBC.ram[0xB1]
+			          << std::dec << std::endl;
+		}
+		nDbgB++;
 
 		for (int charRow = 0; charRow < CHAR_ROWS; charRow++) {
 			for (int charCol = 0; charCol < CHARS_PER_ROW; charCol++) {
@@ -223,10 +236,20 @@ public:
 			}
 		}
 		decBBCScreen->Update();
-		// Stretch 128×256 → 1280×720 (10× horizontal, ~2.81× vertical). Matches Mode C pixel
-		// aspect (the HD renderer's view), not the BBC CRT 1:1 ratio.
-		DrawDecal({0, 0}, decBBCScreen.get(),
-		          { SCREEN_WIDTH / (float)PIXELS_WIDE, SCREEN_HEIGHT / (float)PIXELS_TALL });
+		// Preserve BBC Mode 2 CRT aspect: each pixel is ~2.13× wider than tall (160
+		// pixels across a 4:3 screen). For 128×256 that gives ~1.07:1 display — nearly
+		// square. Letterbox inside the 1280×720 window rather than stretching.
+		if (bModeB) {
+			float vScale = SCREEN_HEIGHT / (float)PIXELS_TALL;           // 720/256 = 2.8125
+			float hScale = vScale * 2.13f;                                 // BBC pixel aspect
+			float w = PIXELS_WIDE * hScale, h = PIXELS_TALL * vScale;
+			float x = (SCREEN_WIDTH - w) * 0.5f;
+			DrawDecal({x, 0}, decBBCScreen.get(), {hScale, vScale});
+		} else {
+			// Mode A: keep original fill-stretch (user already validated its look).
+			DrawDecal({0, 0}, decBBCScreen.get(),
+			          { SCREEN_WIDTH / (float)PIXELS_WIDE, SCREEN_HEIGHT / (float)PIXELS_TALL });
+		}
 	}
 
 	bool OnUserCreate()
@@ -283,28 +306,23 @@ public:
 		// BBC Micro standard layout: BMAIN $0100-$60FF (post-relocation), BINTRO at $7200.
 		Game.LoadExileFromBinary("bmain.rom",  0x0100);
 		Game.LoadExileFromBinary("bintro.rom", 0x7200);
-		if (gMode != 'A') {
-			// Modes B/C: apply HD patches. These (a) copy object/particle stacks to
-			// $9600+ (required because olc6502::ReloactedStackAddress hard-coded
-			// redirect reads from there), (b) rewrite sprite/tile operands to the
-			// new locations, (c) overwrite $0CA5/$10D2/$34C6 to JMP past the BBC
-			// native plotter so the C++ HD renderer draws from extracted game state.
+		if (gMode == 'C') {
+			// Mode C (HD): PatchExileRAM (a) copies object/particle stacks to $9600+,
+			// (b) rewrites sprite/tile operands, (c) JMPs past the BBC native plotter
+			// so the C++ HD renderer draws from extracted game state.
 			Game.PatchExileRAM();
 		} else {
-			// Mode A: the original Exile ROM. Everything HD does is *added* by
-			// PatchExileRAM; for native BBC rendering we must skip it entirely.
-			// That also means disabling the CPU's zero-page redirect (otherwise
-			// every object-stack read returns zero from never-written $9600+ RAM).
-			//
-			// Critically — do NOT wipe $4000-$7FFF. That region LOOKS like boot-
-			// only leftovers but actually contains permanent game data: $4FEC+
-			// holds the map_data (disassembly line 4930: "ADC #&af ; &4fec =
-			// map_data") that the plotter reads via $A4/$A5 pointer. On a real
-			// BBC this data is visible as noise at first, then the game's own
-			// tile plotter overwrites it with tile graphics on startup. Wiping
-			// it kills the map; the game then walks into what's now a BRK at
-			// an empty map row and the CPU lands at PC=$0.
+			// Modes A and B: native BBC rendering, no HD patches, original 16-slot stacks.
 			Game.BBC.cpu.bDisableStackRelocation = true;
+			if (gMode == 'B') {
+				// Mode B relocates the plotter's screen ring from $6000-$7FFF (8 KB) to
+				// $C000-$FFFF (16 KB), matching the enhanced-ROM visible area without
+				// loading sram.rom. Pre-wipe the new screen region; bmain.rom's own
+				// wipe at $01D0 writes to $6000-$7FFF (patched immediate won't fix the
+				// BPL-based loop), so we skip it and do a clean C++ wipe here.
+				Game.PatchModeB_RelocateScreen();
+				for (uint32_t a = 0xC000; a <= 0xFFFF; a++) Game.BBC.ram[a] = 0x00;
+			}
 		}
 		// NOTE: do NOT wipe $4000-$7FFF here. bmain.rom places executable game code at
 		// $4000-$60FF and the HD build (which this Mode A build still shares) calls into
@@ -313,13 +331,14 @@ public:
 		// crash the game to PC=$0. Mode A's render just shows whatever the HD game leaves
 		// in the "screen area" (mostly particles on code-byte noise).
 #endif
-		Game.Initialise(gMode == 'A');  // Mode A skips the ~5s HD sprite-sheet + grid-gen pre-pass
+		Game.Initialise(gMode != 'C');  // Modes A and B skip HD sprite-sheet + grid-gen pre-pass
 
-		// Mode A: allocate the 128×256 sprite/decal pair we blit the BBC framebuffer into each
-		// frame. Exile uses a custom 16 KB mode — R1=64 chars/line, screen at &4000-&7FFF —
-		// giving 128×256 logical pixels at Mode 2 (4 bpp) bit-depth. See DrawBBCFramebuffer.
-		if (gMode == 'A') {
-			sprBBCScreen = std::make_unique<olc::Sprite>(128, 128);
+		// Allocate the BBC-native framebuffer sprite. Size depends on the ring the plotter
+		// writes to: Mode A = 8 KB ring at $6000 (128×128), Mode B = 16 KB ring at $C000
+		// (128×256). See DrawBBCFramebuffer for the decode.
+		if (gMode == 'A' || gMode == 'B') {
+			int nH = (gMode == 'B') ? 256 : 128;
+			sprBBCScreen = std::make_unique<olc::Sprite>(128, nH);
 			decBBCScreen = std::make_unique<olc::Decal>(sprBBCScreen.get());
 		}
 
@@ -450,7 +469,7 @@ public:
 			// audio doesn't compete. Counter survives across game-loop iterations.
 			static int nWelcomeFrameCountdown = 10;  // ~0.25s at 40 game ticks/s
 			if (nWelcomeFrameCountdown > 0 && --nWelcomeFrameCountdown == 0) {
-				Samples.Play(0);  // "Welcome to the land of the exile"
+				if (gMode != 'A') Samples.Play(0);  // Mode A = pure BBC, no voice sample
 			}
 
 #ifdef EXILE_VARIANT_SIDEWAYS_RAM
@@ -522,6 +541,10 @@ public:
 						std::cout << "game-loop stall, pc=$" << std::hex
 						          << Game.BBC.cpu.pc << " lastValidPC=$" << lastValidPC
 						          << " prevValidPC=$" << prevValidPC
+						          << " a=$" << (int)Game.BBC.cpu.a
+						          << " x=$" << (int)Game.BBC.cpu.x
+						          << " y=$" << (int)Game.BBC.cpu.y
+						          << " ZP$8F/$90=$" << (int)Game.BBC.ram[0x90] << (int)Game.BBC.ram[0x8F]
 						          << std::dec << std::endl;
 					}
 					break;
@@ -592,10 +615,12 @@ public:
 		if (bScreenFlash) Clear(olc::WHITE);
 		// O------------------------------------------------------------------------------O
 
-		// Mode A: skip the entire HD draw pipeline; just blit the BBC's own Mode 1 framebuffer.
-		// (Skipping the HD draw block also skips DetermineBackground() — fine, because Mode A
-		//  doesn't apply HD patches, so the BBC's own classify code spawns enemies natively.)
-		if (gMode == 'A') {
+		// Modes A and B: skip the entire HD draw pipeline; just blit the BBC's own
+		// framebuffer (8 KB ring at $6000 for A, 16 KB ring at $C000 for B).
+		// (Skipping the HD draw block also skips DetermineBackground() — fine, because
+		//  these modes don't apply HD patches, so the BBC's own classify code spawns
+		//  enemies natively.)
+		if (gMode == 'A' || gMode == 'B') {
 			DrawBBCFramebuffer();
 			return true;
 		}

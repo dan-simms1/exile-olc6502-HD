@@ -170,6 +170,7 @@ public:
 	bool LoadExileFromDisassembly(std::string sFile);
 	void PatchExileRAM();
 	void PatchEnhancedExileRAM();   // Enhanced/sideways-ROM peer of PatchExileRAM
+	void PatchModeB_RelocateScreen(); // Relocate screen from $6000-$7FFF (8 KB) to $C000-$FFFF (16 KB) — gives Mode B the enhanced screen-size without touching sram.rom.
 
 	std::vector<XY> WaterTiles;
 

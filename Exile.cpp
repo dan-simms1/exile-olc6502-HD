@@ -409,6 +409,46 @@ void Exile::PatchExileRAM() {
 	while (getline(iss, sLine)) ParseAssemblyLine(sLine);
 }
 
+// Mode B: relocate the standard ROM's 8 KB screen ring ($6000-$7FFF) to a 16 KB ring
+// at $C000-$FFFF. Gives us the enhanced ROM's extra screen real estate (256 scanlines)
+// without loading sram.rom. bmain.rom stays where it is; only its screen-addressing
+// immediates are rewritten.
+//
+// Patch targets are documented in MEMORY.md/mode_a_screen_map.md. The choice of $C000
+// is because it's the only 16 KB region that works with the plotter's single-byte
+// ORA-wrap pattern: $BF | $C0 = $FF (wraps), $FF ^ $3F = $C0 (half-wrap flip).
+//
+// Renderer-side changes in Main.cpp: SCREEN_BASE = $C000, SCREEN_SIZE = $4000,
+// PIXELS_TALL = 256; CRTC scroll interpreted as offset within the 16 KB ring.
+// C++ pre-wipes $C000-$FFFF at boot (bmain.rom's own wipe at $01D0 is skipped).
+void Exile::PatchModeB_RelocateScreen() {
+	// BISECT PASS 2: pass 1 patches + scroll→addr + secondary-pointer patches.
+	// Screen-base ORA/LDA: builds high byte of plotter's ZP $8F/$90 (or $94) pointer.
+	BBC.ram[0x1006] = 0xC0;  // calc_screen_address: ORA #$60 → ORA #$C0
+	BBC.ram[0x1096] = 0xC0;  // sprite plotter wrap
+	BBC.ram[0x2002] = 0xC0;  // particle plotter wrap
+	BBC.ram[0x36BF] = 0xC0;  // scroll_start_offset→screen addr: ADC #$60 → ADC #$C0
+	BBC.ram[0x36D7] = 0xC0;  // wrap variant (after SBC #$02)
+	BBC.ram[0x372F] = 0xC0;  // post-wrap reset: LDA #$60
+	BBC.ram[0x370F] = 0xC0;  // wrap via $94 (secondary plotter pointer)
+	BBC.ram[0x374E] = 0xC0;  // wrap via $94
+
+	// NOT patched: $212D LDA #$60 writes RTS ($60) to $2122 and $215A — that's
+	// code-flow self-modifying (restore_original_flow_opcode), not screen base.
+	// Patching it corrupts the RTS and causes function-return failures.
+
+	// CRTC address build: ORA #$60 then STA $9D (crtc_address_high). Without this,
+	// the game tells the BBC the screen is at $6000, but our renderer reads $C000.
+	BBC.ram[0x2742] = 0xC0;
+
+	// Ring boundary: 8 KB end ($7F) → 16 KB end ($FF)
+	BBC.ram[0x100A] = 0xFF;  // CMP #$7F → CMP #$FF
+	BBC.ram[0x109F] = 0xFF;  // CMP #$7F → CMP #$FF
+
+	// Wrap-flip: 8 KB ($1F) → 16 KB ($3F)
+	BBC.ram[0x10A1] = 0x3F;  // EOR #$1F → EOR #$3F
+}
+
 // Enhanced/sideways-ROM peer of PatchExileRAM. Applies the HD patches that
 // DO translate to the enhanced ROM, sets up IRQ fake vectors, and (TODO)
 // relocates sound samples into a sideways bank.
