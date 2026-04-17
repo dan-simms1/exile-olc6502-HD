@@ -28,20 +28,47 @@ const bool SCREEN_VSYNC = true;
 const float SCREEN_ZOOM = 2.0f;
 const float SCREEN_BORDER_SCALE = 0.3f; // To trigger scrolling
 
-char gMode = 'C';  // 'A' = --standard, 'B' = --enhanced, 'C' = --hd (default)
+// Runtime profile: which variant we're running as, plus the ROM-dependent addresses
+// the game-loop driver and sample traps need to monitor. Kept as one struct so it's
+// obvious at a glance which fields belong together and drift stays visible.
+struct RunProfile {
+	char     mode;                  // 'A' = --standard, 'B' = --enhanced, 'C' = --hd
+	uint16_t startGameLoop;
+	uint16_t screenFlashTrap;
+	uint16_t earthquakeTrap;
+	uint16_t sampleTrapScream;
+	uint16_t sampleTrapScreamEnd;
+	uint16_t sampleTrapHR;
+	uint16_t sampleTrapHREnd;
+	uint16_t sampleTrapCR;
+	uint16_t sampleTrapCREnd;
+	uint16_t inputsBase;
 
-// ROM-dependent addresses. Defaults to standard bmain.rom layout; overridden in
-// main() to enhanced sram.rom values when gMode == 'B'.
-uint16_t gStartGameLoop       = 0x19B6;
-uint16_t gScreenFlashTrap     = 0x1FA6;
-uint16_t gEarthquakeTrap      = 0x260A;
-uint16_t gSampleTrapScream    = 0x2497;
-uint16_t gSampleTrapScreamEnd = 0x24A5;
-uint16_t gSampleTrapHR        = 0x480E;
-uint16_t gSampleTrapHREnd     = 0x4815;
-uint16_t gSampleTrapCR        = 0x4858;
-uint16_t gSampleTrapCREnd     = 0x485F;
-uint16_t gInputsBase          = 0x126B;
+	// Standard / HD use bmain.rom addresses; enhanced uses sram.rom. Static factories
+	// document the mapping and keep main() short.
+	static RunProfile Standard() {
+		return { 'A', 0x19B6, 0x1FA6, 0x260A, 0x2497, 0x24A5, 0x480E, 0x4815, 0x4858, 0x485F, 0x126B };
+	}
+	static RunProfile Enhanced() {
+		return { 'B', 0x19DA, 0x1FD9, 0x2639, 0x24CA, 0x24D4, 0xA4AB, 0xA4B0, 0xA4F3, 0xA4F8, 0x1263 };
+	}
+	static RunProfile HD()       {
+		return { 'C', 0x19B6, 0x1FA6, 0x260A, 0x2497, 0x24A5, 0x480E, 0x4815, 0x4858, 0x485F, 0x126B };
+	}
+};
+
+RunProfile gProfile = RunProfile::HD();
+char& gMode = gProfile.mode;
+uint16_t& gStartGameLoop       = gProfile.startGameLoop;
+uint16_t& gScreenFlashTrap     = gProfile.screenFlashTrap;
+uint16_t& gEarthquakeTrap      = gProfile.earthquakeTrap;
+uint16_t& gSampleTrapScream    = gProfile.sampleTrapScream;
+uint16_t& gSampleTrapScreamEnd = gProfile.sampleTrapScreamEnd;
+uint16_t& gSampleTrapHR        = gProfile.sampleTrapHR;
+uint16_t& gSampleTrapHREnd     = gProfile.sampleTrapHREnd;
+uint16_t& gSampleTrapCR        = gProfile.sampleTrapCR;
+uint16_t& gSampleTrapCREnd     = gProfile.sampleTrapCREnd;
+uint16_t& gInputsBase          = gProfile.inputsBase;
 
 float fCanvasX = 4350;
 float fCanvasY = 1570;
@@ -753,29 +780,22 @@ int main(int argc, char* argv[])
 	//   --enhanced : sram.rom + srom.rom (flat, no real sideways RAM), BBC native rendering, 16 KB screen
 	//   --hd       : bmain.rom + HD C++ renderer with 128-object expansion (default)
 	// Internal mode char: A=standard, B=enhanced, C=hd.
+	char nextMode = 'C';  // default --hd
 	for (int i = 1; i < argc; i++) {
 		std::string a = argv[i];
-		if      (a == "--standard")   gMode = 'A';
-		else if (a == "--enhanced")   gMode = 'B';
-		else if (a == "--hd")         gMode = 'C';
+		if      (a == "--standard")   nextMode = 'A';
+		else if (a == "--enhanced")   nextMode = 'B';
+		else if (a == "--hd")         nextMode = 'C';
 		else if (a == "--fullscreen") SCREEN_FULLSCREEN = true;
 		else if (a == "--mode" && i + 1 < argc) {
-			gMode = (char)std::toupper((unsigned char)argv[++i][0]);  // legacy
+			nextMode = (char)std::toupper((unsigned char)argv[++i][0]);  // legacy
 		}
 	}
 
-	// --enhanced (sram.rom) uses different ROM addresses. Overwrite the defaults.
-	if (gMode == 'B') {
-		gStartGameLoop       = 0x19DA;
-		gScreenFlashTrap     = 0x1FD9;
-		gEarthquakeTrap      = 0x2639;
-		gSampleTrapScream    = 0x24CA;
-		gSampleTrapScreamEnd = 0x24D4;
-		gSampleTrapHR        = 0xA4AB;
-		gSampleTrapHREnd     = 0xA4B0;
-		gSampleTrapCR        = 0xA4F3;
-		gSampleTrapCREnd     = 0xA4F8;
-		gInputsBase          = 0x1263;
+	switch (nextMode) {
+		case 'A': gProfile = RunProfile::Standard(); break;
+		case 'B': gProfile = RunProfile::Enhanced(); break;
+		default:  gProfile = RunProfile::HD();       break;
 	}
 
 	Exile_olc6502_HD exile;
