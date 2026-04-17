@@ -447,6 +447,13 @@ void Exile::PatchModeB_RelocateScreen() {
 
 	// Wrap-flip: 8 KB ($1F) → 16 KB ($3F)
 	BBC.ram[0x10A1] = 0x3F;  // EOR #$1F → EOR #$3F
+
+	// Scroll mask for secondary plotter pointer ($94). bmain masks with $1F (5 bits
+	// = 32 char rows × 512 bytes each = 8 KB). Enhanced sram.rom at the same code
+	// sites uses AND #$3F (6 bits = 16 KB), paired with its ORA #$40 base. Without
+	// widening the mask we clip scroll to 8 KB → ship occupies half the ring only.
+	BBC.ram[0x370D] = 0x3F;  // AND #$1F → AND #$3F  (paired with $370F ORA #$C0)
+	BBC.ram[0x374C] = 0x3F;  // AND #$1F → AND #$3F  (paired with $374E ORA #$C0)
 }
 
 // Enhanced/sideways-ROM peer of PatchExileRAM. Applies the HD patches that

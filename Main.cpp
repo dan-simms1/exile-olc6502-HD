@@ -183,33 +183,26 @@ public:
 	void DrawBBCFramebuffer()
 	{
 		// Mode A: native bmain.rom uses 8 KB ring at $6000-$7FFF (128 scanlines).
-		// Mode B: PatchModeB relocates the plotter to a 16 KB ring at $C000-$FFFF,
-		// giving the enhanced-ROM's 256 scanlines without loading sram.rom.
+		// Mode B: patched plotter + widened scroll mask → 16 KB ring at $C000-$FFFF
+		// (256 scanlines), matching enhanced sram.rom's play area.
 		const bool bModeB   = (gMode == 'B');
 		const int  SCREEN_BASE      = bModeB ? 0xC000 : 0x6000;
 		const int  SCREEN_SIZE      = bModeB ? 0x4000 : 0x2000;   // 16 KB vs 8 KB ring
 		const int  CHARS_PER_ROW    = 64;
 		const int  CHAR_ROWS        = bModeB ? 32 : 16;
 		const int  PIXELS_WIDE      = CHARS_PER_ROW * 2;   // 128
-		const int  PIXELS_TALL      = CHAR_ROWS * 8;       // 128 or 256
+		const int  PIXELS_TALL      = CHAR_ROWS * 8;       // 256 (B) or 128 (A)
 
 		uint16_t crtcMA    = ((uint16_t)Game.BBC.crtcR12 << 8) | Game.BBC.crtcR13; // 14-bit
 		uint16_t startByte = (uint16_t)((crtcMA * 8) & 0x7FFF);
 		int screenOffset = (startByte - SCREEN_BASE) & (SCREEN_SIZE - 1);
-
-		static int nDbgB = 0;
-		if (gMode == 'B' && (nDbgB == 30 || nDbgB == 120)) {
-			std::cout << "Mode B f=" << nDbgB
-			          << std::hex << " R12=$" << (int)Game.BBC.crtcR12
-			          << " R13=$" << (int)Game.BBC.crtcR13
-			          << " crtcMA=$" << crtcMA
-			          << " startByte=$" << startByte
-			          << " scrollOff=$" << screenOffset
-			          << " $B0=$" << (int)Game.BBC.ram[0xB0]
-			          << " $B1=$" << (int)Game.BBC.ram[0xB1]
-			          << std::dec << std::endl;
-		}
-		nDbgB++;
+		// Mode B: the game's CRTC writes still encode for the $6000 ring while the
+		// plotter writes at $C000+. $2000 shift realigns top/bottom with the plotter's
+		// actual output. Known limitation: middle ~8 KB of the 16 KB ring shows as a
+		// black gap because the tile-strip plot loop generates strips only for
+		// scroll-visible edges, not for the whole ring. Fix would require patching
+		// the strip-count bound in the game's scroll loop.
+		if (bModeB) screenOffset = (screenOffset + 0x2000) & (SCREEN_SIZE - 1);
 
 		for (int charRow = 0; charRow < CHAR_ROWS; charRow++) {
 			for (int charCol = 0; charCol < CHARS_PER_ROW; charCol++) {
