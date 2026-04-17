@@ -50,7 +50,9 @@ void Bus::write(uint16_t addr, uint8_t data)
 		crtcSelectedReg = data & 0x1F;  // low 5 bits select the register
 	}
 	if (addr == 0xFE01) {
-		if (crtcSelectedReg == 12) crtcR12 = data;
+		if (crtcSelectedReg == 1)       crtcR1  = data;
+		else if (crtcSelectedReg == 6)  crtcR6  = data;
+		else if (crtcSelectedReg == 12) crtcR12 = data;
 		else if (crtcSelectedReg == 13) crtcR13 = data;
 		// Falls through to ram[addr] = data
 	}

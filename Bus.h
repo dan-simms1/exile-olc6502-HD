@@ -42,6 +42,8 @@ public: // Devices on Bus
 	// Pre-set so the first Mode A render works before the game (post-boot snapshot) touches
 	// the CRTC; Modes B/C don't look at crtcR12/R13.
 	uint8_t  crtcSelectedReg = 0;     // which CRTC register is being written ($FE00 selects)
+	uint8_t  crtcR1  = 64;            // R1: displayed chars per line (default matches enhanced 64)
+	uint8_t  crtcR6  = 32;            // R6: displayed char rows (default matches enhanced 32)
 	uint8_t  crtcR12 = 0x08;          // MA high byte (Exile screen at $4000)
 	uint8_t  crtcR13 = 0x00;          // MA low byte
 
