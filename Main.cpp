@@ -87,13 +87,75 @@ std::unique_ptr<olc::Sprite> sprWaterSquare[2];  std::unique_ptr<olc::Decal> dec
 bool bScreenFlash = false;
 uint8_t nEarthQuakeOffset = 0;
 
-// BBC-key → host-key mapping. Indexed by the game's `action_keys_pressed` offset
-// (0..38). olc::D is the "dummy / unused" slot for BBC keys with no host binding.
+// BBC-key → host-key mapping. Indexed by the game's `action_keys_pressed` offset.
+// Slot numbers and BBC-key names are taken from the enhanced disassembly's
+// action_keys_pressed table (see comments below). olc::D is the unused/dummy
+// slot for BBC keys with no sensible host binding.
+//     slot  BBC-key   host-key       handler
+//     &00   COPY      END            handle_pause
+//     &01   f0        ESCAPE         (no F0 on modern keyboards)
+//     &02   f1        F1             weapon / energy transfer
+//     &03   f2        F2             ″
+//     &04   f3        F3             ″
+//     &05   f4        F4             ″
+//     &06   f5        F5             ″
+//     &07   f6        F6             ″
+//     &08   f7        F7             ″
+//     &09   f8        F8             ″
+//     &0a   f9        F9             ″
+//     &0b   f9(rep)   F10            save-game path (repeat-enabled f9)
+//     &0c   G         G              retrieve held object
+//     &0d   SPACE     SPACE          fire
+//     &0e   I         I              centre aim
+//     &0f   LEFT      LEFT           scroll viewpoint ←
+//     &10   RIGHT     RIGHT          scroll viewpoint →
+//     &11   UP        UP             scroll viewpoint ↑
+//     &12   DOWN      DOWN           scroll viewpoint ↓
+//     &13   K         K              lower aim
+//     &14   O         O              raise aim
+//     &15   @         OEM_1 (';')    booster  (BBC '@' re-mapped to host ';' like jsbeeb)
+//     &16   CTRL      CTRL           lying down
+//     &17   TAB       TAB            swap direction
+//     &18   Y         Y              whistle 1
+//     &19   U         U              whistle 2
+//     &1a   T         T              teleport
+//     &1b   R         R              remember position
+//     &1c   >         PERIOD         throw object
+//     &1d   M         M              drop object
+//     &1e   <         COMMA          pick up object
+//     &1f   S         S              store object
+//     &20   V         V              toggle sound
+//     &21   Q         Q              thrust left
+//     &22   W         W              thrust right
+//     &23   P         P              thrust up
+//     &24   P(rep)    P              jump
+//     &25   L         L              thrust down
+//     &26   SHIFT     SHIFT          null (modifier)
 constexpr size_t kNumInputKeys = 39;
-olc::Key Keys[kNumInputKeys] = { olc::Key::D /* D = Dummy Key */, olc::ESCAPE, olc::F1, olc::F2, olc::F3, olc::F4, olc::F5, olc::F6, olc::F7, olc::F8, olc::Key::D, olc::Key::D,
-			  olc::Key::G, olc::SPACE, olc::Key::I, olc::Key::D, olc::Key::D, olc::Key::D, olc::Key::D, olc::Key::K, olc::Key::O, olc::Key::OEM_4 /* '[' */,
-			  olc::CTRL, olc::TAB, olc::Key::Y, olc::Key::U, olc::Key::T, olc::Key::R, olc::PERIOD, olc::Key::M, olc::Key::COMMA,
-			  olc::Key::S, olc::Key::V, olc::Key::Q, olc::Key::W, olc::Key::P, olc::Key::P, olc::Key::L, olc::SHIFT };
+olc::Key Keys[kNumInputKeys] = {
+	olc::END,                       // &00 COPY
+	olc::ESCAPE,                    // &01 f0
+	olc::F1, olc::F2, olc::F3, olc::F4, olc::F5, olc::F6, olc::F7, olc::F8, // &02-&09 f1-f8
+	olc::F9,                        // &0a f9 (weapon)
+	olc::F10,                       // &0b f9 (save) — distinct key so both paths are testable
+	olc::Key::G,                    // &0c G
+	olc::SPACE,                     // &0d SPACE
+	olc::Key::I,                    // &0e I
+	olc::LEFT, olc::RIGHT, olc::UP, olc::DOWN,  // &0f-&12 cursor / scroll viewpoint
+	olc::Key::K,                    // &13 K
+	olc::Key::O,                    // &14 O
+	olc::Key::OEM_1,                // &15 @ (→ ';' on host)
+	olc::CTRL,                      // &16 CTRL
+	olc::TAB,                       // &17 TAB
+	olc::Key::Y, olc::Key::U,       // &18-&19 whistles
+	olc::Key::T, olc::Key::R,       // &1a-&1b teleport / remember
+	olc::PERIOD, olc::Key::M, olc::Key::COMMA,  // &1c-&1e > M <
+	olc::Key::S, olc::Key::V,       // &1f-&20 store / toggle sound
+	olc::Key::Q, olc::Key::W,       // &21-&22 thrust L / R
+	olc::Key::P, olc::Key::P,       // &23-&24 thrust up / jump (same physical key)
+	olc::Key::L,                    // &25 thrust down
+	olc::SHIFT                      // &26 SHIFT
+};
 static_assert(sizeof(Keys) / sizeof(Keys[0]) == kNumInputKeys, "Keys[] size mismatch");
 
 // Game-loop cadence and safety cap.
@@ -404,6 +466,11 @@ public:
 			if (GetKey(olc::K4).bPressed) Samples.Play(4);  // "Oooh!"
 			if (GetKey(olc::K5).bPressed) Samples.Play(5);  // "Destroy!"
 			if (GetKey(olc::K6).bPressed) Samples.Play(6);  // "Radio die"
+			// CTRL+E → trigger end-game ship fly-away for testing. Sets ship_moving
+			// bit 7 at $19CF; the game's scroll logic then locks Finn's Y at $3B and
+			// updates CRTC scroll accordingly (native modes) / --hd's camera override
+			// scrolls the view up.
+			if (GetKey(olc::Key::E).bPressed) Game.BBC.ram[0x19CF] = 0x80;
 		}
 
 		// (Runtime fullscreen toggle removed — Apple GLUT's glutFullScreen / glutReshapeWindow
