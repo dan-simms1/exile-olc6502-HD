@@ -17,7 +17,7 @@ LDFLAGS  := -L$(LIBPNG_PREFIX)/lib -lpng \
             -framework GLUT -framework OpenGL -framework Carbon -framework AudioToolbox \
             -pthread -flto
 
-exile: $(OBJS) | exile-disassembly.txt
+exile: $(OBJS)
 	$(CXX) -o $@ $(OBJS) $(LDFLAGS)
 	@if [ -d Exile.app ]; then cp $@ Exile.app/Contents/MacOS/exile; fi
 
@@ -29,8 +29,5 @@ obj:
 
 clean:
 	rm -rf obj exile
-
-exile-disassembly.txt:
-	curl -sL -o exile-disassembly.txt http://www.level7.org.uk/miscellany/exile-disassembly.txt
 
 .PHONY: exile clean

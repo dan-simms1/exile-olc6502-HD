@@ -113,11 +113,9 @@ public:
 	olc6502 cpu;
 
 	void Initialise(bool bFaithful = false);  // bFaithful=true skips slow grid generation (native modes)
-	void RestoreOldBytesInRange(uint16_t lo, uint16_t hi);
 	bool bFirstWriteWins = false;
 	bool LoadExileFromBinary(std::string sFile, uint16_t loadAddr);
 	bool LoadExileFromBinaryToBank(std::string sFile, uint8_t bank, uint16_t offsetInBank);
-	bool LoadExileFromDisassembly(std::string sFile);
 	void PatchExileRAM();
 	void PatchEnhancedExileRAM();   // Enhanced/sideways-ROM peer of PatchExileRAM
 

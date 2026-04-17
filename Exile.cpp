@@ -73,38 +73,6 @@ bool Exile::LoadExileFromBinaryToBank(std::string sFile, uint8_t bank, uint16_t 
 	return true;
 }
 
-bool Exile::LoadExileFromDisassembly(std::string sFile) {
-	bFirstWriteWins = true; // enable only for disassembly load — ignores self-mod alt annotations in newer files
-	// Load Exile RAM from disassembly:
-	std::string sLine;
-	std::ifstream fileExileDisassembly(sFile);
-	if (fileExileDisassembly.is_open())
-	{
-		bool bLoadStarted = false;
-
-		while (getline(fileExileDisassembly, sLine))
-		{
-			if ((sLine.substr(0, 5) == "#0100") || (sLine.substr(0, 5) == "&0100") || bLoadStarted) {
-				bLoadStarted = true;
-				ParseAssemblyLine(sLine);
-			}
-		}
-
-		fileExileDisassembly.close();
-	}
-	else {
-		std::cout << "Exile disassembly file missing";
-		return false;
-	}
-
-	// Corrections needed for current level7.org.uk disassembly.
-	BBC.ram[0x34C6] = 0x18; BBC.ram[0x34C7] = 0x18;
-	BBC.ram[0x492E] = 0x82; BBC.ram[0x492F] = 0xA9; BBC.ram[0x4930] = 0x4B;
-
-	bFirstWriteWins = false; // allow PatchExileRAM to overwrite freely
-	return true;
-}
-
 void Exile::CopyRAM(uint16_t nSource, uint16_t nTarget, uint8_t nLength) {
 	for (int i = 0; i < nLength; i++) {
 		BBC.ram[nTarget + i] = BBC.ram[nSource + i];
@@ -601,17 +569,6 @@ void Exile::GenerateBackgroundGrid() {
 	std::cout.flush();
 }
 
-void Exile::RestoreOldBytesInRange(uint16_t lo, uint16_t hi) {
-	std::ifstream f("diff_old_bytes.txt");
-	if (!f.is_open()) { std::cout << "diff_old_bytes.txt missing\n"; return; }
-	std::string addrs, vals; int count = 0;
-	while (f >> addrs >> vals) {
-		uint32_t a = std::stoul(addrs, nullptr, 16);
-		uint32_t v = std::stoul(vals, nullptr, 16);
-		if (a >= lo && a < hi) { BBC.ram[a] = (uint8_t)v; count++; }
-	}
-	std::cout << "restored " << count << " bytes in [" << std::hex << lo << "," << hi << ")" << std::dec << std::endl;
-}
 
 void Exile::GenerateSpriteSheet() {
 	int pixel_i = 0; int pixel_j = 0;
