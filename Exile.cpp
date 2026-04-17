@@ -454,6 +454,13 @@ void Exile::PatchModeB_RelocateScreen() {
 	// widening the mask we clip scroll to 8 KB → ship occupies half the ring only.
 	BBC.ram[0x370D] = 0x3F;  // AND #$1F → AND #$3F  (paired with $370F ORA #$C0)
 	BBC.ram[0x374C] = 0x3F;  // AND #$1F → AND #$3F  (paired with $374E ORA #$C0)
+
+	// NOTE: loop-count patches at $15B3/$15B7/$36AD/$36DE were tested but did not
+	// close the middle gap — reverted. The root cause is that the enhanced and
+	// standard ROMs have *fundamentally different* code at the scroll/plot routines
+	// (71-254 bytes differ in each), not a few loop-count tweaks. Rebuilding
+	// enhanced functionality in bmain would require porting ~620 bytes of code +
+	// srom.rom data, which is effectively loading sram.rom. See mode_a_screen_map.md.
 }
 
 // Enhanced/sideways-ROM peer of PatchExileRAM. Applies the HD patches that
