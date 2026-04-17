@@ -38,7 +38,20 @@ const bool SCREEN_VSYNC = true;
 const float SCREEN_ZOOM = 2.0f;
 const float SCREEN_BORDER_SCALE = 0.3f; // To trigger scrolling
 
-char gMode = 'C';  // 'A' = BBC-native framebuffer, 'C' = HD renderer (default)
+char gMode = 'C';  // 'A' = --standard, 'B' = --enhanced, 'C' = --hd (default)
+
+// ROM-dependent addresses. Defaults to standard bmain.rom layout; overridden in
+// main() to enhanced sram.rom values when gMode == 'B'.
+uint16_t gStartGameLoop       = 0x19B6;
+uint16_t gScreenFlashTrap     = 0x1FA6;
+uint16_t gEarthquakeTrap      = 0x260A;
+uint16_t gSampleTrapScream    = 0x2497;
+uint16_t gSampleTrapScreamEnd = 0x24A5;
+uint16_t gSampleTrapHR        = 0x480E;
+uint16_t gSampleTrapHREnd     = 0x4815;
+uint16_t gSampleTrapCR        = 0x4858;
+uint16_t gSampleTrapCREnd     = 0x485F;
+uint16_t gInputsBase          = 0x126B;
 
 float fCanvasX = 4350;
 float fCanvasY = 1570;
@@ -182,27 +195,19 @@ public:
 	// wraps as a circular buffer.
 	void DrawBBCFramebuffer()
 	{
-		// Mode A: native bmain.rom uses 8 KB ring at $6000-$7FFF (128 scanlines).
-		// Mode B: patched plotter + widened scroll mask → 16 KB ring at $C000-$FFFF
-		// (256 scanlines), matching enhanced sram.rom's play area.
-		const bool bModeB   = (gMode == 'B');
-		const int  SCREEN_BASE      = bModeB ? 0xC000 : 0x6000;
-		const int  SCREEN_SIZE      = bModeB ? 0x4000 : 0x2000;   // 16 KB vs 8 KB ring
+		// --standard (A): bmain.rom uses 8 KB ring at $6000-$7FFF, 128 scanlines.
+		// --enhanced (B): sram.rom uses 16 KB ring at $4000-$7FFF, 256 scanlines.
+		const bool bEnhanced = (gMode == 'B');
+		const int  SCREEN_BASE = bEnhanced ? 0x4000 : 0x6000;
+		const int  SCREEN_SIZE = bEnhanced ? 0x4000 : 0x2000;
 		const int  CHARS_PER_ROW    = 64;
-		const int  CHAR_ROWS        = bModeB ? 32 : 16;
+		const int  CHAR_ROWS        = bEnhanced ? 32 : 16;
 		const int  PIXELS_WIDE      = CHARS_PER_ROW * 2;   // 128
-		const int  PIXELS_TALL      = CHAR_ROWS * 8;       // 256 (B) or 128 (A)
+		const int  PIXELS_TALL      = CHAR_ROWS * 8;       // 256 or 128
 
 		uint16_t crtcMA    = ((uint16_t)Game.BBC.crtcR12 << 8) | Game.BBC.crtcR13; // 14-bit
 		uint16_t startByte = (uint16_t)((crtcMA * 8) & 0x7FFF);
 		int screenOffset = (startByte - SCREEN_BASE) & (SCREEN_SIZE - 1);
-		// Mode B: the game's CRTC writes still encode for the $6000 ring while the
-		// plotter writes at $C000+. $2000 shift realigns top/bottom with the plotter's
-		// actual output. Known limitation: middle ~8 KB of the 16 KB ring shows as a
-		// black gap because the tile-strip plot loop generates strips only for
-		// scroll-visible edges, not for the whole ring. Fix would require patching
-		// the strip-count bound in the game's scroll loop.
-		if (bModeB) screenOffset = (screenOffset + 0x2000) & (SCREEN_SIZE - 1);
 
 		for (int charRow = 0; charRow < CHAR_ROWS; charRow++) {
 			for (int charCol = 0; charCol < CHARS_PER_ROW; charCol++) {
@@ -229,19 +234,27 @@ public:
 			}
 		}
 		decBBCScreen->Update();
-		// Preserve BBC Mode 2 CRT aspect: each pixel is ~2.13× wider than tall (160
-		// pixels across a 4:3 screen). For 128×256 that gives ~1.07:1 display — nearly
-		// square. Letterbox inside the 1280×720 window rather than stretching.
-		if (bModeB) {
-			float vScale = SCREEN_HEIGHT / (float)PIXELS_TALL;           // 720/256 = 2.8125
-			float hScale = vScale * 2.13f;                                 // BBC pixel aspect
-			float w = PIXELS_WIDE * hScale, h = PIXELS_TALL * vScale;
-			float x = (SCREEN_WIDTH - w) * 0.5f;
-			DrawDecal({x, 0}, decBBCScreen.get(), {hScale, vScale});
-		} else {
-			// Mode A: keep original fill-stretch (user already validated its look).
-			DrawDecal({0, 0}, decBBCScreen.get(),
-			          { SCREEN_WIDTH / (float)PIXELS_WIDE, SCREEN_HEIGHT / (float)PIXELS_TALL });
+		// Emulate the full BBC PAL CRT frame inside the window. The BBC renders
+		// content into R1 of R0+1 chars horizontally and R6 of R4+1 rows vertically,
+		// leaving border/overscan for the rest of the frame:
+		//
+		//   Horizontal: R1=$40 / (R0+1)=$80 = 50% of CRT width
+		//   Vertical:   R6=$20 / (R4+1)=$27 = 82% of CRT frame (enhanced, 256 scanlines)
+		//               R6=$10 / (R4+1)=$27 = 41% of CRT frame (standard, 128 scanlines)
+		//
+		// So standard has much thicker top/bottom black bars than enhanced, matching
+		// how the real game looks on a BBC CRT.
+		{
+			const float kFrameWidthFrac = 64.0f / 128.0f;   // R1 / (R0+1)
+			const float kFrameRows      = 39.0f;            // R4+1 PAL rows (× 8 = 312 scanlines)
+			const float kRowsVisible    = (float)(PIXELS_TALL / 8);  // R6
+			float w = SCREEN_WIDTH  * kFrameWidthFrac;
+			float h = SCREEN_HEIGHT * (kRowsVisible / kFrameRows);
+			float hScale = w / PIXELS_WIDE;
+			float vScale = h / PIXELS_TALL;
+			float x = (SCREEN_WIDTH  - w) * 0.5f;
+			float y = (SCREEN_HEIGHT - h) * 0.5f;
+			DrawDecal({x, y}, decBBCScreen.get(), {hScale, vScale});
 		}
 	}
 
@@ -269,66 +282,40 @@ public:
 		int nNull = 0;
 		olc::PixelGameEngine::SetDrawTarget(nNull);
 
-		// Load Exile RAM from authoritative ROM (built from Tom Seddon's BeebAsm disassembly).
-		// Choose at compile time between BBC Micro standard and sideways-RAM (BBC Master) variants.
-#ifdef EXILE_VARIANT_SIDEWAYS_RAM
-		// Sideways-RAM (BBC Master) variant: load clean BeebAsm-built binaries.
-		//   SRAM is assembled to run at $0100 (the .lea load=$1200 is the BBC's pre-relocation address).
-		//   SROM is sideways-ROM content; on real hardware it pages into $8000-$BFFF. Enable the
-		//   Bus's paged-ROM emulation (ROMSEL $FE30) and load SROM into sideways bank 0, at the
-		//   offset the game expects ($99EC → $8000 + $19EC within the bank).
-		//   SINIT/SINIT2 are boot routines; we pre-place memory directly so they aren't executed.
-		Game.BBC.bSidewaysPaging = true;
-		Game.BBC.activeBank = 0;
-		Game.LoadExileFromBinary("sram.rom",   0x0100);   // main code/data
-		Game.LoadExileFromBinary("sinit.rom",  0x7690);   // boot init (loaded, not executed — same as how standard loads bintro.rom but never runs it)
-		Game.LoadExileFromBinary("sinit2.rom", 0x6489);   // boot init 2 (data bytes at $6489-$6494 + code at $6495)
-		Game.LoadExileFromBinaryToBank("srom.rom", /*bank=*/0, /*offsetInBank=*/0x99EC - 0x8000);
-
-		// DO NOT zero $0100-$01FF. Although it overlaps the 6502 stack page, sram.rom
-		// loads REAL CODE + DATA here: $01A8 process_actions is called from sound code
-		// in sideways bank 0 ($A6D3), and $01D0 wipe_screen_and_start_game is the end
-		// of SINIT2. Zeroing them replaces working routines with BRK cascades and sends
-		// the CPU walking through zero bytes until it hits SINIT2's decrypt loop.
-		// The stack grows down from $01FF; on real hardware the game keeps its stack
-		// shallow so it never reaches down to the $01A8 code region.
-
-		// Apply all HD patches + IRQ-vector fakes for the enhanced ROM.
-		Game.PatchEnhancedExileRAM();
-#else
-		// BBC Micro standard layout: BMAIN $0100-$60FF (post-relocation), BINTRO at $7200.
-		Game.LoadExileFromBinary("bmain.rom",  0x0100);
-		Game.LoadExileFromBinary("bintro.rom", 0x7200);
-		if (gMode == 'C') {
-			// Mode C (HD): PatchExileRAM (a) copies object/particle stacks to $9600+,
-			// (b) rewrites sprite/tile operands, (c) JMPs past the BBC native plotter
-			// so the C++ HD renderer draws from extracted game state.
-			Game.PatchExileRAM();
-		} else {
-			// Modes A and B: native BBC rendering, no HD patches, original 16-slot stacks.
+		// Load Exile RAM based on runtime mode:
+		//   Mode A: bmain.rom — standard BBC Micro, native rendering, 8 KB screen $6000.
+		//   Mode B: sram.rom + srom.rom via sideways paging — enhanced BBC Master, native
+		//           rendering, 16 KB screen $4000.
+		//   Mode C: bmain.rom + HD patches — standard ROM + C++ HD renderer (128 objects).
+		if (gMode == 'B') {
+			// Enhanced / sideways-RAM layout. Load exactly as the old sideways variant did.
+			Game.BBC.bSidewaysPaging = true;
+			Game.BBC.activeBank = 0;
+			Game.LoadExileFromBinary("sram.rom",   0x0100);
+			Game.LoadExileFromBinary("sinit.rom",  0x7690);
+			Game.LoadExileFromBinary("sinit2.rom", 0x6489);
+			Game.LoadExileFromBinaryToBank("srom.rom", /*bank=*/0, /*offsetInBank=*/0x99EC - 0x8000);
+			// Native rendering only — skip HD patches. IRQ-vector fakes still needed
+			// (we don't load MOS).
+			Game.BBC.ram[0xFFF0] = 0x40;                                  // RTI
+			Game.BBC.ram[0xFFFA] = 0xF0; Game.BBC.ram[0xFFFB] = 0xFF;    // NMI
+			Game.BBC.ram[0xFFFC] = 0xF0; Game.BBC.ram[0xFFFD] = 0xFF;    // RESET
+			Game.BBC.ram[0xFFFE] = 0xF0; Game.BBC.ram[0xFFFF] = 0xFF;    // IRQ
 			Game.BBC.cpu.bDisableStackRelocation = true;
-			if (gMode == 'B') {
-				// Mode B relocates the plotter's screen ring from $6000-$7FFF (8 KB) to
-				// $C000-$FFFF (16 KB), matching the enhanced-ROM visible area without
-				// loading sram.rom. Pre-wipe the new screen region; bmain.rom's own
-				// wipe at $01D0 writes to $6000-$7FFF (patched immediate won't fix the
-				// BPL-based loop), so we skip it and do a clean C++ wipe here.
-				Game.PatchModeB_RelocateScreen();
-				for (uint32_t a = 0xC000; a <= 0xFFFF; a++) Game.BBC.ram[a] = 0x00;
+		} else {
+			// Modes A and C: standard BBC Micro ROM.
+			Game.LoadExileFromBinary("bmain.rom",  0x0100);
+			Game.LoadExileFromBinary("bintro.rom", 0x7200);
+			if (gMode == 'C') {
+				Game.PatchExileRAM();  // HD 128-object + C++ renderer
+			} else {
+				Game.BBC.cpu.bDisableStackRelocation = true;  // native Mode A
 			}
 		}
-		// NOTE: do NOT wipe $4000-$7FFF here. bmain.rom places executable game code at
-		// $4000-$60FF and the HD build (which this Mode A build still shares) calls into
-		// that range. The BBC intro would wipe this memory to set up screen display, but
-		// we bypass the intro — zeroing it now would turn those code bytes into BRKs and
-		// crash the game to PC=$0. Mode A's render just shows whatever the HD game leaves
-		// in the "screen area" (mostly particles on code-byte noise).
-#endif
 		Game.Initialise(gMode != 'C');  // Modes A and B skip HD sprite-sheet + grid-gen pre-pass
 
-		// Allocate the BBC-native framebuffer sprite. Size depends on the ring the plotter
-		// writes to: Mode A = 8 KB ring at $6000 (128×128), Mode B = 16 KB ring at $C000
-		// (128×256). See DrawBBCFramebuffer for the decode.
+		// Allocate the BBC-native framebuffer sprite. --standard = 128×128 (8 KB ring),
+		// --enhanced = 128×256 (16 KB ring). --hd uses the HD renderer, no sprite here.
 		if (gMode == 'A' || gMode == 'B') {
 			int nH = (gMode == 'B') ? 256 : 128;
 			sprBBCScreen = std::make_unique<olc::Sprite>(128, nH);
@@ -426,7 +413,7 @@ public:
 		for (int nKey = 0; nKey < 39; nKey++) {
 			if (GetKey(Keys[nKey]).bPressed || GetKey(Keys[nKey]).bHeld) {
 				if (Keys[nKey] != olc::D) { // Ignore D (dummy) key
-					Game.BBC.ram[GAME_RAM_INPUTS + nKey] = Game.BBC.ram[GAME_RAM_INPUTS + nKey] | 0x80;
+					Game.BBC.ram[gInputsBase + nKey] = Game.BBC.ram[gInputsBase + nKey] | 0x80;
 				}
 			}
 		}
@@ -457,7 +444,7 @@ public:
 			// O------------------------------------------------------------------------------O
 			bScreenFlash = false;
 
-			Game.BBC.cpu.pc = GAME_RAM_STARTGAMELOOP;
+			Game.BBC.cpu.pc = gStartGameLoop;
 			// Welcome sample fires once after a brief settle so initialisation
 			// audio doesn't compete. Counter survives across game-loop iterations.
 			static int nWelcomeFrameCountdown = 10;  // ~0.25s at 40 game ticks/s
@@ -465,43 +452,9 @@ public:
 				if (gMode != 'A') Samples.Play(0);  // Mode A = pure BBC, no voice sample
 			}
 
-#ifdef EXILE_VARIANT_SIDEWAYS_RAM
-			// Frames now complete naturally back to $19DA (vsync trap at $1F99 in olc6502
-			// lets the wait_for_vsync loop exit). A generous cap (1M) is kept purely as a
-			// safety net in case a frame ever hangs — normal frames take well under 100k instr.
-			int nCycleSafetyCap = 1000000;
-			do {
-				do Game.BBC.cpu.clock();
-				while (!Game.BBC.cpu.complete());
-				if (Game.BBC.cpu.pc == GAME_RAM_SCREENFLASH) bScreenFlash = (Game.BBC.cpu.a == 0);
-				if (Game.BBC.cpu.pc == GAME_RAM_EARTHQUAKE) nEarthQuakeOffset = (Game.BBC.cpu.a & 1);
-				// Sample traps: play the WAV AND jump past the rest of the 6502
-				// routine so its own play_sound / play_sample calls don't
-				// double up (the BBC scream sound on top of "Ow!" was audible
-				// and may have been contributing to the periodic thud).
-				// Mode A skips these — pure BBC experience uses only SN76489 chip sound.
-				if (gMode != 'A') {
-					if (Game.BBC.cpu.pc == SAMPLE_TRAP_SCREAM) {
-						Samples.Play(1 + (rand() & 3));
-						Game.BBC.cpu.pc = SAMPLE_TRAP_SCREAM_SKIP_TO;
-					}
-					if (Game.BBC.cpu.pc == SAMPLE_TRAP_HOVERING_ROBOT) {
-						Samples.Play(6);
-						Game.BBC.cpu.pc = SAMPLE_TRAP_HR_SKIP_TO;
-					}
-					if (Game.BBC.cpu.pc == SAMPLE_TRAP_CLAWED_ROBOT) {
-						Samples.Play(5);
-						Game.BBC.cpu.pc = SAMPLE_TRAP_CR_SKIP_TO;
-					}
-				}
-				if (--nCycleSafetyCap <= 0) break;
-			} while (Game.BBC.cpu.pc != GAME_RAM_STARTGAMELOOP);
-#else
-			// Safety cap: under Mode C the HD patches keep main_game_loop fast, but Mode A
-			// (unpatched game) can wander off into code we don't support (OSBYTE, stuck
-			// wait loops) — without this cap the C++ loop hangs forever. One million
-			// 6502 instructions is far more than a healthy frame needs (~50k).
-			int nCycleSafetyCapStd = 1'000'000;
+			// Unified game-loop driver. Runs CPU instructions until PC cycles back to
+			// main_game_loop. Safety cap prevents infinite spin on unsupported OS calls.
+			int nCycleSafetyCap = 1'000'000;
 			uint16_t lastValidPC = Game.BBC.cpu.pc;
 			uint16_t prevValidPC = lastValidPC;
 			do {
@@ -511,39 +464,35 @@ public:
 				}
 				do Game.BBC.cpu.clock();
 				while (!Game.BBC.cpu.complete());
-				if (Game.BBC.cpu.pc == GAME_RAM_SCREENFLASH) bScreenFlash = (Game.BBC.cpu.a == 0);
-				if (Game.BBC.cpu.pc == GAME_RAM_EARTHQUAKE) nEarthQuakeOffset = (Game.BBC.cpu.a & 1);
-				// Mode A skips voice sample traps — pure BBC uses only SN76489 chip sound.
-				if (gMode != 'A') {
-					if (Game.BBC.cpu.pc == SAMPLE_TRAP_SCREAM) {
+				if (Game.BBC.cpu.pc == gScreenFlashTrap) bScreenFlash = (Game.BBC.cpu.a == 0);
+				if (Game.BBC.cpu.pc == gEarthquakeTrap)  nEarthQuakeOffset = (Game.BBC.cpu.a & 1);
+				// Sample traps: play WAV + skip past the 6502's own play_sound so sounds
+				// don't double up. --standard and --enhanced disable samples (pure BBC).
+				if (gMode == 'C') {
+					if (Game.BBC.cpu.pc == gSampleTrapScream) {
 						Samples.Play(1 + (rand() & 3));
-						Game.BBC.cpu.pc = SAMPLE_TRAP_SCREAM_SKIP_TO;
+						Game.BBC.cpu.pc = gSampleTrapScreamEnd;
 					}
-					if (Game.BBC.cpu.pc == SAMPLE_TRAP_HOVERING_ROBOT) {
+					if (Game.BBC.cpu.pc == gSampleTrapHR) {
 						Samples.Play(6);
-						Game.BBC.cpu.pc = SAMPLE_TRAP_HR_SKIP_TO;
+						Game.BBC.cpu.pc = gSampleTrapHREnd;
 					}
-					if (Game.BBC.cpu.pc == SAMPLE_TRAP_CLAWED_ROBOT) {
+					if (Game.BBC.cpu.pc == gSampleTrapCR) {
 						Samples.Play(5);
-						Game.BBC.cpu.pc = SAMPLE_TRAP_CR_SKIP_TO;
+						Game.BBC.cpu.pc = gSampleTrapCREnd;
 					}
 				}
-				if (--nCycleSafetyCapStd <= 0) {
+				if (--nCycleSafetyCap <= 0) {
 					static int nStallWarn = 0;
 					if (nStallWarn++ < 5) {
 						std::cout << "game-loop stall, pc=$" << std::hex
 						          << Game.BBC.cpu.pc << " lastValidPC=$" << lastValidPC
 						          << " prevValidPC=$" << prevValidPC
-						          << " a=$" << (int)Game.BBC.cpu.a
-						          << " x=$" << (int)Game.BBC.cpu.x
-						          << " y=$" << (int)Game.BBC.cpu.y
-						          << " ZP$8F/$90=$" << (int)Game.BBC.ram[0x90] << (int)Game.BBC.ram[0x8F]
 						          << std::dec << std::endl;
 					}
 					break;
 				}
-			} while (Game.BBC.cpu.pc != GAME_RAM_STARTGAMELOOP);
-#endif
+			} while (Game.BBC.cpu.pc != gStartGameLoop);
 
 			// Fake IRQ scheduling moved out of this block — see top of
 			// OnUserUpdate so it accumulates true elapsed time, not just
@@ -556,10 +505,10 @@ public:
 			for (int nKey = 0; nKey < 39; nKey++) {
 				if (GetKey(Keys[nKey]).bHeld) {
 					if (Keys[nKey] != olc::D) { // Ignore D (dummy) key
-						Game.BBC.ram[GAME_RAM_INPUTS + nKey] = 0x40;
+						Game.BBC.ram[gInputsBase + nKey] = 0x40;
 					}
 				}
-				else Game.BBC.ram[GAME_RAM_INPUTS + nKey] = 0x00;
+				else Game.BBC.ram[gInputsBase + nKey] = 0x00;
 			}
 			// O------------------------------------------------------------------------------O
 
@@ -793,17 +742,6 @@ public:
 			olc::PixelGameEngine::DrawStringDecal(olc::vd2d(32, 156), "TIME DRAW: " + std::to_string(Time_DrawScreen.count()), olc::GREEN, olc::vf2d(2.0f, 2.0f));
 		}
 		// O------------------------------------------------------------------------------O
-#ifdef EXILE_VARIANT_SIDEWAYS_RAM
-		{
-			char dbg[96]; snprintf(dbg, sizeof(dbg), "sideways: PC=$%04X  firstZeroFrom=$%04X  bank=%u",
-			                      (unsigned)Game.BBC.cpu.pc, (unsigned)sw_lastPcBefore0, (unsigned)Game.BBC.activeBank);
-			olc::PixelGameEngine::DrawStringDecal(olc::vd2d(10, SCREEN_HEIGHT - 30), dbg, olc::YELLOW, olc::vf2d(2.0f, 2.0f));
-		}
-		// Yield to macOS WindowServer so the window activates and doesn't dock-bounce.
-		// PGE on macOS GLUT uses glutIdleFunc (no rate-limit, no vsync), so without this
-		// we peg 100% CPU and the window never registers properly on macOS 26.
-		std::this_thread::sleep_for(std::chrono::milliseconds(16));
-#endif
 
 		return true;
 	}
@@ -812,12 +750,34 @@ public:
 
 int main(int argc, char* argv[])
 {
-	// Parse `--mode A|B|C` (default 'C' = HD renderer, current behaviour)
+	// Parse CLI args. Three display variants:
+	//   --standard : bmain.rom, BBC native rendering, 8 KB screen
+	//   --enhanced : sram.rom + srom.rom (flat, no real sideways RAM), BBC native rendering, 16 KB screen
+	//   --hd       : bmain.rom + HD C++ renderer with 128-object expansion (default)
+	// Internal mode char: A=standard, B=enhanced, C=hd.
 	for (int i = 1; i < argc; i++) {
 		std::string a = argv[i];
-		if (a == "--mode" && i + 1 < argc) {
+		if      (a == "--standard") gMode = 'A';
+		else if (a == "--enhanced") gMode = 'B';
+		else if (a == "--hd")       gMode = 'C';
+		else if (a == "--mode" && i + 1 < argc) {
+			// Legacy alias
 			gMode = (char)std::toupper((unsigned char)argv[++i][0]);
 		}
+	}
+
+	// Mode B (enhanced/sram.rom) uses different ROM addresses. Overwrite the defaults.
+	if (gMode == 'B') {
+		gStartGameLoop       = 0x19DA;
+		gScreenFlashTrap     = 0x1FD9;
+		gEarthquakeTrap      = 0x2639;
+		gSampleTrapScream    = 0x24CA;
+		gSampleTrapScreamEnd = 0x24D4;
+		gSampleTrapHR        = 0xA4AB;
+		gSampleTrapHREnd     = 0xA4B0;
+		gSampleTrapCR        = 0xA4F3;
+		gSampleTrapCREnd     = 0xA4F8;
+		gInputsBase          = 0x1263;
 	}
 
 	Exile_olc6502_HD exile;

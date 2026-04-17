@@ -120,18 +120,13 @@ void olc6502::clock()
 		pc++;
 
 		// VDU / wait_for_vsync trap: force BCC not-taken at the vsync poll loop so
-		// the game doesn't spin waiting for a VSYNC IRQ we never deliver.
-		//   Standard  ROM wait_for_vsync: $1F60 LDA $11E4 / $1F63 CMP #2 / $1F65 BCC → break at $1F66
-		//   Enhanced  ROM wait_for_vsync: $1F93 LDA $11DC / $1F96 CMP #2 / $1F98 BCC → break at $1F99
-#ifdef EXILE_VARIANT_SIDEWAYS_RAM
-		if (pc == 0x1F99) {
+		// the game doesn't spin waiting for a VSYNC IRQ we never deliver. Both ROM
+		// variants have the same pattern (LDA / CMP #2 / BCC) at different addresses:
+		//   Standard (--standard / --hd): $1F60 / $1F65 BCC → break at $1F66
+		//   Enhanced (--enhanced):        $1F93 / $1F98 BCC → break at $1F99
+		if (pc == 0x1F66 || pc == 0x1F99) {
 			SetFlag(C, 1);
 		}
-#else
-		if (pc == 0x1F66) {
-			SetFlag(C, 1);
-		}
-#endif
 
 		// Get starting number of cycles
 		cycles = lookup[opcode].cycles;
@@ -166,12 +161,7 @@ void olc6502::SetFlag(FLAGS6502 f, bool v)
 
 uint16_t olc6502::ReloactedStackAddress(uint16_t AddressToTest)
 {
-#ifdef EXILE_VARIANT_SIDEWAYS_RAM
-	// Sideways/enhanced: identity — enhanced ROM keeps the original 16-slot
-	// object stacks at $0860+. No relocation.
-	return AddressToTest;
-#else
-	// Mode A (native rendering) runs the unpatched game which still uses the original
+	// --standard and --enhanced (native rendering) run the unpatched game which still uses the original
 	// stacks at $0860+. Bypass the HD redirect entirely, otherwise every object-stack
 	// read returns zero (never-initialised $9600+ RAM) — breaking draw routines.
 	if (bDisableStackRelocation) return AddressToTest;
@@ -196,7 +186,6 @@ uint16_t olc6502::ReloactedStackAddress(uint16_t AddressToTest)
 	case 0x0976: return 0xa700; // object_stack_extra
 	}
 	return AddressToTest;
-#endif
 }
 
 // Addressing modes
