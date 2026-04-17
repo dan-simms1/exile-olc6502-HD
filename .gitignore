@@ -19,6 +19,15 @@ exile-disassembly.txt
 
 # macOS
 .DS_Store
+
+# Debug screenshots (local only)
+debug-shots/
+
+# Build artifact dirs
+obj/
+obj-std/
+obj-side/
+
 # jsbeeb bank bins (unused — game state is in main-RAM snapshot only)
 snapshot_bank*.bin
 snapshot_cpu.txt

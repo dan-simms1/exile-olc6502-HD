@@ -1,13 +1,22 @@
-# "Starter for 10" makefile provided by @mattgodbolt
-# Only required for compiling the emulator on Linux
+# Linux Makefile (experimental — see README for status).
+#
+# The audio path in BBCSound.cpp / SampleManager.cpp currently uses macOS
+# AudioToolbox unconditionally; until those are guarded or ported to a
+# cross-platform backend the Linux build will fail at link time. The build
+# up to the audio link errors is functional on Ubuntu 22.04+.
 
-OBJS:=Bus.o Exile.o olc6502.o Main.o
-exile: $(OBJS) | exile-disassembly.txt
-	g++ -o $@ $^ -lX11 -pthread -lstdc++fs -lpng -lGL -march=native -flto
-.cpp.o:
-	g++ -c -o $@ $^ -O3 -march=native -flto
+SOURCES := Bus.cpp Exile.cpp olc6502.cpp SampleManager.cpp BBCSound.cpp SN76489.cpp Main.cpp
+OBJS    := $(SOURCES:.cpp=.o)
+
+CXX := g++
+CXXFLAGS := -std=c++17 -O3 -march=native -flto
+LDFLAGS  := -lX11 -pthread -lpng -lGL -march=native -flto
+
+exile: $(OBJS)
+	$(CXX) -o $@ $^ $(LDFLAGS)
+
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
 clean:
 	rm -f $(OBJS) exile
-
-exile-disassembly.txt:
-	curl -sL -o exile-disassembly.txt http://www.level7.org.uk/miscellany/exile-disassembly.txt

@@ -8,15 +8,6 @@
 #include <cmath>
 #include <cctype>
 #include <thread>
-#ifndef BISECT_LO
-#define BISECT_LO 0
-#endif
-#ifndef BISECT_HI
-#define BISECT_HI 0
-#endif
-#ifndef BISECT_HI
-#define BISECT_HI 0xFFFF
-#endif
 
 // O------------------------------------------------------------------------------O
 // | Screen constants and global variables                                        |
@@ -65,9 +56,6 @@ float fScrollShiftY = 0;
 
 std::unique_ptr<olc::Sprite> sprWater[2];        std::unique_ptr<olc::Decal> decWater[2];
 std::unique_ptr<olc::Sprite> sprWaterSquare[2];  std::unique_ptr<olc::Decal> decWaterSquare[2];
-
-uint16_t sw_lastPc = 0;          // diagnostic: PC at end of the last emulated frame (sideways only)
-uint16_t sw_lastPcBefore0 = 0;   // diagnostic: first PC that preceded PC=0 — where it goes off the rails
 
 bool bScreenFlash = false;
 uint8_t nEarthQuakeOffset = 0;
