@@ -171,6 +171,10 @@ uint16_t olc6502::ReloactedStackAddress(uint16_t AddressToTest)
 	// object stacks at $0860+. No relocation.
 	return AddressToTest;
 #else
+	// Mode A (native rendering) runs the unpatched game which still uses the original
+	// stacks at $0860+. Bypass the HD redirect entirely, otherwise every object-stack
+	// read returns zero (never-initialised $9600+ RAM) — breaking draw routines.
+	if (bDisableStackRelocation) return AddressToTest;
 	switch(AddressToTest) {
 	case 0x0860: return 0x9600; // object_stack_type
 	case 0x0870: return 0x9700; // object_stack_sprite

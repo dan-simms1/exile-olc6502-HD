@@ -162,7 +162,7 @@ public:
 	Bus BBC;
 	olc6502 cpu;
 
-	void Initialise();
+	void Initialise(bool bFaithful = false);  // bFaithful=true skips slow grid generation for Mode A
 	void RestoreOldBytesInRange(uint16_t lo, uint16_t hi);
 	bool bFirstWriteWins = false;
 	bool LoadExileFromBinary(std::string sFile, uint16_t loadAddr);

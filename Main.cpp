@@ -6,6 +6,7 @@
 #include "BBCSound.h"
 #include <chrono>
 #include <cmath>
+#include <cctype>
 #include <thread>
 #ifndef BISECT_LO
 #define BISECT_LO 0
@@ -36,6 +37,8 @@ const bool SCREEN_FULLSCREEN = false;
 const bool SCREEN_VSYNC = true;
 const float SCREEN_ZOOM = 2.0f;
 const float SCREEN_BORDER_SCALE = 0.3f; // To trigger scrolling
+
+char gMode = 'C';  // 'A' = BBC-native framebuffer, 'C' = HD renderer (default)
 
 float fCanvasX = 4350;
 float fCanvasY = 1570;
@@ -89,6 +92,11 @@ public:
 	Exile Game;
 	SampleManager Samples;
 	BBCSound      Sound;
+
+	// Mode A only: the BBC's own $4000-$7FFF framebuffer decoded into a 128×256 sprite
+	// and blit to the window each frame. See DrawBBCFramebuffer().
+	std::unique_ptr<olc::Sprite> sprBBCScreen;
+	std::unique_ptr<olc::Decal>  decBBCScreen;
 
 	float ScreenCoordinateX(float GameCoordinateX) {
 		float x = GameCoordinateX - fCanvasX - fCanvasOffsetX - (fScrollShiftX * fTimeSinceLastFrame / 0.025f);
@@ -148,6 +156,79 @@ public:
 		Samples.PlayTone(freqHz, amp, durMs);
 	}
 
+	// Decode Exile's framebuffer (16 KB, $4000-$7FFF) into sprBBCScreen and blit to the window.
+	// Used only in Mode A — the BBC's own plotter writes here naturally when HD patches are skipped.
+	//
+	// Exile uses a CUSTOM 16 KB screen mode: R1 = 64 chars/line (not Mode 2's 80) placed at
+	// &4000-&7FFF. This is visible in the disassembly: wipe_screen_loop ($01D5) clears
+	// &4000-&7FFF, then "LDA #&01 ; R1" / "LDX #&40" writes 64 to CRTC R1. The Video ULA is
+	// still configured for Mode 2 bit-depth (4 bpp, 2 px/byte) — see $69E7 "Use MODE 2".
+	//     64 chars × 2 px = 128 px wide;   32 char rows × 8 scanlines = 256 px tall.
+	//     64 × 32 × 8 = 16384 bytes = 0x4000 — exactly &4000-&7FFF, and the 16 KB freed at
+	//     &3000-&3FFF holds relocated game code (Exile famously packs every byte of RAM).
+	//
+	// Pixel layout (cross-checked against jsbeeb src/video.js lines 399-421):
+	//   Pixel 0 (left)  colour = byte bits 7,5,3,1 → colour bits 3,2,1,0 respectively.
+	//   Pixel 1 (right) colour = byte bits 6,4,2,0 → colour bits 3,2,1,0 respectively.
+	//
+	// Palette: the game writes $FE21 = (logicalXOR0xF << 4) | physicalNibble, where the
+	// physicalNibble's low 3 bits are *inverted* (0 = on). After XOR with 0x07, bits encode
+	// B,G,R at positions 0,1,2 (verified on real BBC: the "red" palette byte $E6 → phy=6
+	// XOR 7 = 1 and jsbeeb's collook[1] = 0xff0000ff in ABGR = pure RED, so bit 0 *is* Blue
+	// in the index word and bit 2 is Red).
+	//
+	// CRTC R12/R13 give a 14-bit MA (memory-address) value; the byte address of top-left is
+	// MA*8. For Exile's &4000 screen, MA = 0x0800. Scrolling shifts MA; the 16 KB screen
+	// wraps as a circular buffer.
+	void DrawBBCFramebuffer()
+	{
+		// Standard BBC Exile uses an 8 KB screen ring at $6000-$7FFF (what bmain.rom's
+		// $01D0 wipes). $4000-$5FFF is off-screen code/data — including it in the decode
+		// makes CRTC scroll wrap through it, showing raw bmain.rom bytes as a rainbow
+		// middle-band of garbage. R1=64 chars × R9+1=8 scanlines × R6=16 rows = 8192 = 8 KB.
+		const int  SCREEN_BASE      = 0x6000;
+		const int  SCREEN_SIZE      = 0x2000;   // 8 KB ring
+		const int  CHARS_PER_ROW    = 64;
+		const int  CHAR_ROWS        = 16;
+		const int  PIXELS_WIDE      = CHARS_PER_ROW * 2;   // 128
+		const int  PIXELS_TALL      = CHAR_ROWS * 8;       // 128
+
+		uint16_t crtcMA    = ((uint16_t)Game.BBC.crtcR12 << 8) | Game.BBC.crtcR13; // 14-bit
+		uint16_t startByte = (crtcMA * 8) & 0x7FFF;        // byte address of top-left
+		// Express as offset within the 16 KB circular screen buffer at [$4000, $8000).
+		int screenOffset = (startByte - SCREEN_BASE) & (SCREEN_SIZE - 1);
+
+		for (int charRow = 0; charRow < CHAR_ROWS; charRow++) {
+			for (int charCol = 0; charCol < CHARS_PER_ROW; charCol++) {
+				for (int scan = 0; scan < 8; scan++) {
+					int linear   = (charRow * CHARS_PER_ROW + charCol) * 8 + scan;
+					int scrolled = (linear + screenOffset) & (SCREEN_SIZE - 1);
+					uint8_t b    = Game.BBC.ram[SCREEN_BASE + scrolled];
+					int py = charRow * 8 + scan;
+					for (int n = 0; n < 2; n++) {
+						int logCol = (((b >> (7 - n)) & 1) << 3)
+						           | (((b >> (5 - n)) & 1) << 2)
+						           | (((b >> (3 - n)) & 1) << 1)
+						           |  ((b >> (1 - n)) & 1);
+						// BBC physical colour: lower nibble of $FE21 write is active-high direct
+						// (not inverted — VDU 19 arg 0=black, 1=red, 2=green, 3=yellow, 4=blue,
+						// 5=magenta, 6=cyan, 7=white). Bit 0 = Red, bit 1 = Green, bit 2 = Blue.
+						uint8_t phy = Game.BBC.videoULAPalette[logCol];
+						uint8_t r  = (phy & 1) ? 0xFF : 0;
+						uint8_t g  = (phy & 2) ? 0xFF : 0;
+						uint8_t bv = (phy & 4) ? 0xFF : 0;
+						sprBBCScreen->SetPixel(charCol * 2 + n, py, olc::Pixel(r, g, bv));
+					}
+				}
+			}
+		}
+		decBBCScreen->Update();
+		// Stretch 128×256 → 1280×720 (10× horizontal, ~2.81× vertical). Matches Mode C pixel
+		// aspect (the HD renderer's view), not the BBC CRT 1:1 ratio.
+		DrawDecal({0, 0}, decBBCScreen.get(),
+		          { SCREEN_WIDTH / (float)PIXELS_WIDE, SCREEN_HEIGHT / (float)PIXELS_TALL });
+	}
+
 	bool OnUserCreate()
 	{
 		Clear(olc::BLACK);
@@ -202,9 +283,45 @@ public:
 		// BBC Micro standard layout: BMAIN $0100-$60FF (post-relocation), BINTRO at $7200.
 		Game.LoadExileFromBinary("bmain.rom",  0x0100);
 		Game.LoadExileFromBinary("bintro.rom", 0x7200);
-		Game.PatchExileRAM();
+		if (gMode != 'A') {
+			// Modes B/C: apply HD patches. These (a) copy object/particle stacks to
+			// $9600+ (required because olc6502::ReloactedStackAddress hard-coded
+			// redirect reads from there), (b) rewrite sprite/tile operands to the
+			// new locations, (c) overwrite $0CA5/$10D2/$34C6 to JMP past the BBC
+			// native plotter so the C++ HD renderer draws from extracted game state.
+			Game.PatchExileRAM();
+		} else {
+			// Mode A: the original Exile ROM. Everything HD does is *added* by
+			// PatchExileRAM; for native BBC rendering we must skip it entirely.
+			// That also means disabling the CPU's zero-page redirect (otherwise
+			// every object-stack read returns zero from never-written $9600+ RAM).
+			//
+			// Critically — do NOT wipe $4000-$7FFF. That region LOOKS like boot-
+			// only leftovers but actually contains permanent game data: $4FEC+
+			// holds the map_data (disassembly line 4930: "ADC #&af ; &4fec =
+			// map_data") that the plotter reads via $A4/$A5 pointer. On a real
+			// BBC this data is visible as noise at first, then the game's own
+			// tile plotter overwrites it with tile graphics on startup. Wiping
+			// it kills the map; the game then walks into what's now a BRK at
+			// an empty map row and the CPU lands at PC=$0.
+			Game.BBC.cpu.bDisableStackRelocation = true;
+		}
+		// NOTE: do NOT wipe $4000-$7FFF here. bmain.rom places executable game code at
+		// $4000-$60FF and the HD build (which this Mode A build still shares) calls into
+		// that range. The BBC intro would wipe this memory to set up screen display, but
+		// we bypass the intro — zeroing it now would turn those code bytes into BRKs and
+		// crash the game to PC=$0. Mode A's render just shows whatever the HD game leaves
+		// in the "screen area" (mostly particles on code-byte noise).
 #endif
-		Game.Initialise();
+		Game.Initialise(gMode == 'A');  // Mode A skips the ~5s HD sprite-sheet + grid-gen pre-pass
+
+		// Mode A: allocate the 128×256 sprite/decal pair we blit the BBC framebuffer into each
+		// frame. Exile uses a custom 16 KB mode — R1=64 chars/line, screen at &4000-&7FFF —
+		// giving 128×256 logical pixels at Mode 2 (4 bpp) bit-depth. See DrawBBCFramebuffer.
+		if (gMode == 'A') {
+			sprBBCScreen = std::make_unique<olc::Sprite>(128, 128);
+			decBBCScreen = std::make_unique<olc::Decal>(sprBBCScreen.get());
+		}
 
 		// Load Tom Seddon's voice samples (Master enhanced). Missing/absent samples
 		// are non-fatal; we just won't play them.
@@ -350,37 +467,64 @@ public:
 				// routine so its own play_sound / play_sample calls don't
 				// double up (the BBC scream sound on top of "Ow!" was audible
 				// and may have been contributing to the periodic thud).
-				if (Game.BBC.cpu.pc == SAMPLE_TRAP_SCREAM) {
-					Samples.Play(1 + (rand() & 3));
-					Game.BBC.cpu.pc = SAMPLE_TRAP_SCREAM_SKIP_TO;
-				}
-				if (Game.BBC.cpu.pc == SAMPLE_TRAP_HOVERING_ROBOT) {
-					Samples.Play(6);
-					Game.BBC.cpu.pc = SAMPLE_TRAP_HR_SKIP_TO;
-				}
-				if (Game.BBC.cpu.pc == SAMPLE_TRAP_CLAWED_ROBOT) {
-					Samples.Play(5);
-					Game.BBC.cpu.pc = SAMPLE_TRAP_CR_SKIP_TO;
+				// Mode A skips these — pure BBC experience uses only SN76489 chip sound.
+				if (gMode != 'A') {
+					if (Game.BBC.cpu.pc == SAMPLE_TRAP_SCREAM) {
+						Samples.Play(1 + (rand() & 3));
+						Game.BBC.cpu.pc = SAMPLE_TRAP_SCREAM_SKIP_TO;
+					}
+					if (Game.BBC.cpu.pc == SAMPLE_TRAP_HOVERING_ROBOT) {
+						Samples.Play(6);
+						Game.BBC.cpu.pc = SAMPLE_TRAP_HR_SKIP_TO;
+					}
+					if (Game.BBC.cpu.pc == SAMPLE_TRAP_CLAWED_ROBOT) {
+						Samples.Play(5);
+						Game.BBC.cpu.pc = SAMPLE_TRAP_CR_SKIP_TO;
+					}
 				}
 				if (--nCycleSafetyCap <= 0) break;
 			} while (Game.BBC.cpu.pc != GAME_RAM_STARTGAMELOOP);
 #else
+			// Safety cap: under Mode C the HD patches keep main_game_loop fast, but Mode A
+			// (unpatched game) can wander off into code we don't support (OSBYTE, stuck
+			// wait loops) — without this cap the C++ loop hangs forever. One million
+			// 6502 instructions is far more than a healthy frame needs (~50k).
+			int nCycleSafetyCapStd = 1'000'000;
+			uint16_t lastValidPC = Game.BBC.cpu.pc;
+			uint16_t prevValidPC = lastValidPC;
 			do {
+				if (Game.BBC.cpu.pc >= 0x0100 && Game.BBC.cpu.pc < 0x8000) {
+					prevValidPC = lastValidPC;
+					lastValidPC = Game.BBC.cpu.pc;
+				}
 				do Game.BBC.cpu.clock();
 				while (!Game.BBC.cpu.complete());
 				if (Game.BBC.cpu.pc == GAME_RAM_SCREENFLASH) bScreenFlash = (Game.BBC.cpu.a == 0);
 				if (Game.BBC.cpu.pc == GAME_RAM_EARTHQUAKE) nEarthQuakeOffset = (Game.BBC.cpu.a & 1);
-				if (Game.BBC.cpu.pc == SAMPLE_TRAP_SCREAM) {
-					Samples.Play(1 + (rand() & 3));
-					Game.BBC.cpu.pc = SAMPLE_TRAP_SCREAM_SKIP_TO;
+				// Mode A skips voice sample traps — pure BBC uses only SN76489 chip sound.
+				if (gMode != 'A') {
+					if (Game.BBC.cpu.pc == SAMPLE_TRAP_SCREAM) {
+						Samples.Play(1 + (rand() & 3));
+						Game.BBC.cpu.pc = SAMPLE_TRAP_SCREAM_SKIP_TO;
+					}
+					if (Game.BBC.cpu.pc == SAMPLE_TRAP_HOVERING_ROBOT) {
+						Samples.Play(6);
+						Game.BBC.cpu.pc = SAMPLE_TRAP_HR_SKIP_TO;
+					}
+					if (Game.BBC.cpu.pc == SAMPLE_TRAP_CLAWED_ROBOT) {
+						Samples.Play(5);
+						Game.BBC.cpu.pc = SAMPLE_TRAP_CR_SKIP_TO;
+					}
 				}
-				if (Game.BBC.cpu.pc == SAMPLE_TRAP_HOVERING_ROBOT) {
-					Samples.Play(6);
-					Game.BBC.cpu.pc = SAMPLE_TRAP_HR_SKIP_TO;
-				}
-				if (Game.BBC.cpu.pc == SAMPLE_TRAP_CLAWED_ROBOT) {
-					Samples.Play(5);
-					Game.BBC.cpu.pc = SAMPLE_TRAP_CR_SKIP_TO;
+				if (--nCycleSafetyCapStd <= 0) {
+					static int nStallWarn = 0;
+					if (nStallWarn++ < 5) {
+						std::cout << "game-loop stall, pc=$" << std::hex
+						          << Game.BBC.cpu.pc << " lastValidPC=$" << lastValidPC
+						          << " prevValidPC=$" << prevValidPC
+						          << std::dec << std::endl;
+					}
+					break;
 				}
 			} while (Game.BBC.cpu.pc != GAME_RAM_STARTGAMELOOP);
 #endif
@@ -447,6 +591,14 @@ public:
 		Clear(olc::BLANK);
 		if (bScreenFlash) Clear(olc::WHITE);
 		// O------------------------------------------------------------------------------O
+
+		// Mode A: skip the entire HD draw pipeline; just blit the BBC's own Mode 1 framebuffer.
+		// (Skipping the HD draw block also skips DetermineBackground() — fine, because Mode A
+		//  doesn't apply HD patches, so the BBC's own classify code spawns enemies natively.)
+		if (gMode == 'A') {
+			DrawBBCFramebuffer();
+			return true;
+		}
 
 		// O------------------------------------------------------------------------------O
 		// | Draw background water                                                        |
@@ -640,8 +792,16 @@ public:
 
 };
 
-int main()
+int main(int argc, char* argv[])
 {
+	// Parse `--mode A|B|C` (default 'C' = HD renderer, current behaviour)
+	for (int i = 1; i < argc; i++) {
+		std::string a = argv[i];
+		if (a == "--mode" && i + 1 < argc) {
+			gMode = (char)std::toupper((unsigned char)argv[++i][0]);
+		}
+	}
+
 	Exile_olc6502_HD exile;
 	exile.Construct(SCREEN_WIDTH, SCREEN_HEIGHT, 1, 1, SCREEN_FULLSCREEN, SCREEN_VSYNC);
 	exile.Start();

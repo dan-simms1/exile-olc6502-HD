@@ -35,6 +35,26 @@ void Bus::write(uint16_t addr, uint8_t data)
 		}
 	}
 
+	// Video ULA palette register ($FE21) — mode A framebuffer renderer reads this
+	// to map BBC logical colours to physical colours.
+	if (addr == 0xFE21) {
+		uint8_t logical  = (data >> 4) ^ 0x0F;  // top nibble inverted = logical colour index
+		uint8_t physical = data & 0x0F;          // bottom nibble = physical colour (BGR bits)
+		videoULAPalette[logical] = physical;
+		// Falls through to ram[addr] = data for consistency with sound writes
+	}
+
+	// CRTC register selection ($FE00) and data ($FE01) — mode A needs to track
+	// R12:R13 (screen start address) to handle CRTC scroll within the circular screen buffer.
+	if (addr == 0xFE00) {
+		crtcSelectedReg = data & 0x1F;  // low 5 bits select the register
+	}
+	if (addr == 0xFE01) {
+		if (crtcSelectedReg == 12) crtcR12 = data;
+		else if (crtcSelectedReg == 13) crtcR13 = data;
+		// Falls through to ram[addr] = data
+	}
+
 	// System VIA → SN76489 path. The game writes its sound byte to port A
 	// ($FE4F) then strobes the IC32 latch (port B at $FE40) with line 0
 	// going low to assert sound chip /WE. BBCSound::OnPortBWrite latches

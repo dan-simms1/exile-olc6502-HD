@@ -76,6 +76,13 @@ public:
 
 	bool complete();
 
+	// Mode A (native BBC rendering) runs the UNPATCHED game code, which expects object
+	// stacks at their original $0860+ addresses. The HD build (Modes B/C) relocates
+	// those stacks to $9600+ via PatchExileRAM() + the ReloactedStackAddress redirect
+	// below. Mode A sets this to true so the redirect is bypassed — otherwise every
+	// object-stack read returns zero (never-initialised $9600+ RAM).
+	bool bDisableStackRelocation = false;
+
 private:
 	Bus* bus = nullptr;
 	uint8_t	read(uint16_t a);

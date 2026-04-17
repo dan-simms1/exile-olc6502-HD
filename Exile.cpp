@@ -793,16 +793,21 @@ void Exile::DrawExileSprite(olc::PixelGameEngine* PGE,
 	//---------------------------------------------------------------------------------
 }
 
-void Exile::Initialise()
+void Exile::Initialise(bool bFaithful)
 {
-	GenerateSpriteSheet();
+	// Mode A (bFaithful=true) skips expensive HD sprite-sheet and background-grid generation,
+	// since it renders the BBC framebuffer directly instead of from extracted game state.
+	// Startup goes from ~5s to near-instant.
+	if (!bFaithful) {
+		GenerateSpriteSheet();
 
-	// Snapshot & restore zero-page around the grid gen so the classify's scratch writes
-	// don't corrupt the live game state carried over from the boot snapshot.
-	uint8_t zpSave[256];
-	for (int i = 0; i < 256; i++) zpSave[i] = BBC.ram[i];
-	GenerateBackgroundGrid();
-	for (int i = 0; i < 256; i++) BBC.ram[i] = zpSave[i];
+		// Snapshot & restore zero-page around the grid gen so the classify's scratch writes
+		// don't corrupt the live game state carried over from the boot snapshot.
+		uint8_t zpSave[256];
+		for (int i = 0; i < 256; i++) zpSave[i] = BBC.ram[i];
+		GenerateBackgroundGrid();
+		for (int i = 0; i < 256; i++) BBC.ram[i] = zpSave[i];
+	}
 
 	BBC.cpu.stkp = 0xff;
 	BBC.cpu.pc = GAME_RAM_STARTGAMELOOP;
