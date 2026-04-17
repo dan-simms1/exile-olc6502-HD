@@ -454,8 +454,9 @@ public:
 				if (Game.BBC.cpu.pc == gScreenFlashTrap) bScreenFlash = (Game.BBC.cpu.a == 0);
 				if (Game.BBC.cpu.pc == gEarthquakeTrap)  nEarthQuakeOffset = (Game.BBC.cpu.a & 1);
 				// Sample traps: play WAV + skip past the 6502's own play_sound so sounds
-				// don't double up. --standard and --enhanced disable samples (pure BBC).
-				if (gMode == 'C') {
+				// don't double up. --standard skips samples (pure BBC SN76489 only);
+				// --enhanced and --hd both play voice samples.
+				if (gMode != 'A') {
 					if (Game.BBC.cpu.pc == gSampleTrapScream) {
 						Samples.Play(1 + (rand() & 3));
 						Game.BBC.cpu.pc = gSampleTrapScreamEnd;
