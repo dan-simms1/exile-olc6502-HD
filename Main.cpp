@@ -28,12 +28,11 @@ std::chrono::duration<double> Time_GameLoop;
 std::chrono::duration<double> Time_DrawScreen;
 
 const float SCREEN_WIDTH = 1280;        const float SCREEN_HEIGHT = 720; // 720p display
-// Default windowed — macOS's GLUT fullscreen APIs (glutFullScreen / glutReshapeWindow) crash
-// with NSTrackingRectTag errors on Tahoe. Use the native green button or a supported WM shortcut
-// to maximise; our reshape handler (in olcPixelGameEngine.h) scales the canvas to fit.
-#ifndef SCREEN_FULLSCREEN
-const bool SCREEN_FULLSCREEN = false;
-#endif
+// Fullscreen can be enabled at launch via `--fullscreen`. On macOS Tahoe/Sonoma
+// PGE's GLUT-based fullscreen flag is stable; the older glutFullScreen crash
+// (NSTrackingRectTag) we saw on M-series earlier is resolved when PGE's
+// construct-time fullscreen flag is used rather than a runtime toggle.
+bool SCREEN_FULLSCREEN = false;
 const bool SCREEN_VSYNC = true;
 const float SCREEN_ZOOM = 2.0f;
 const float SCREEN_BORDER_SCALE = 0.3f; // To trigger scrolling
@@ -757,12 +756,12 @@ int main(int argc, char* argv[])
 	// Internal mode char: A=standard, B=enhanced, C=hd.
 	for (int i = 1; i < argc; i++) {
 		std::string a = argv[i];
-		if      (a == "--standard") gMode = 'A';
-		else if (a == "--enhanced") gMode = 'B';
-		else if (a == "--hd")       gMode = 'C';
+		if      (a == "--standard")   gMode = 'A';
+		else if (a == "--enhanced")   gMode = 'B';
+		else if (a == "--hd")         gMode = 'C';
+		else if (a == "--fullscreen") SCREEN_FULLSCREEN = true;
 		else if (a == "--mode" && i + 1 < argc) {
-			// Legacy alias
-			gMode = (char)std::toupper((unsigned char)argv[++i][0]);
+			gMode = (char)std::toupper((unsigned char)argv[++i][0]);  // legacy
 		}
 	}
 
