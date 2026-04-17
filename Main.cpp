@@ -166,6 +166,27 @@ public:
 		Samples.PlayTone(freqHz, amp, durMs);
 	}
 
+	// Draw one pass of water decals — level 0 = opaque background, 1 = transparent foreground.
+	// Called twice per HD frame (before and after sprites) so sprites render between the two layers.
+	void DrawWaterPass(int layer, int nTileOffsetX) {
+		for (int i = -1; i < (fCanvasWidth / GAME_TILE_WIDTH + 1); i++) {
+			int x = i + nTileOffsetX;
+			float fScreenX = ScreenCoordinateX(x * GAME_TILE_WIDTH);
+			float fScreenY = ScreenCoordinateY(Game.WaterLevel(x));
+			if (fScreenY < -GAME_TILE_HEIGHT) fScreenY = -GAME_TILE_HEIGHT;
+			olc::PixelGameEngine::DrawDecal(olc::vf2d(fScreenX, fScreenY),
+			                                decWater[layer].get(),
+			                                olc::vf2d(SCREEN_ZOOM, SCREEN_ZOOM));
+		}
+		for (size_t i = 0; i < Game.WaterTiles.size(); i++) {
+			float fScreenX = ScreenCoordinateX(Game.WaterTiles[i].GameX * GAME_TILE_WIDTH);
+			float fScreenY = ScreenCoordinateY(Game.WaterTiles[i].GameY * GAME_TILE_HEIGHT);
+			olc::PixelGameEngine::DrawDecal(olc::vf2d(fScreenX, fScreenY),
+			                                decWaterSquare[layer].get(),
+			                                olc::vf2d(SCREEN_ZOOM, SCREEN_ZOOM));
+		}
+	}
+
 	// Decode Exile's framebuffer (16 KB, $4000-$7FFF) into sprBBCScreen and blit to the window.
 	// Used by --standard (8 KB ring at $6000) and --enhanced (16 KB ring at $4000). The BBC's own
 	// plotter writes into screen memory naturally since HD patches are only applied for --hd.
@@ -572,18 +593,7 @@ public:
 		int nTileOffsetX = int((fCanvasX + fCanvasOffsetX) / GAME_TILE_WIDTH);
 		int nTileOffsetY = int((fCanvasY + fCanvasOffsetY) / GAME_TILE_HEIGHT);
 
-		for (int i = -1; i < (fCanvasWidth / GAME_TILE_WIDTH + 1); i++) { // Draw general water level:
-			int x = i + nTileOffsetX;
-			float fScreenX = ScreenCoordinateX(x * GAME_TILE_WIDTH);
-			float fScreenY = ScreenCoordinateY(Game.WaterLevel(x));
-			if (fScreenY < -GAME_TILE_HEIGHT) fScreenY = -GAME_TILE_HEIGHT;
-			olc::PixelGameEngine::DrawDecal(olc::vf2d(fScreenX, fScreenY), decWater[0].get(), olc::vf2d(SCREEN_ZOOM, SCREEN_ZOOM));
-		}
-		for (int i = 0; i < Game.WaterTiles.size(); i++) { // Draw specific water tiles throughout map:
-			float fScreenX = ScreenCoordinateX(Game.WaterTiles[i].GameX * GAME_TILE_WIDTH);
-			float fScreenY = ScreenCoordinateY(Game.WaterTiles[i].GameY * GAME_TILE_HEIGHT);
-			olc::PixelGameEngine::DrawDecal(olc::vf2d(fScreenX, fScreenY), decWaterSquare[0].get(), olc::vf2d(SCREEN_ZOOM, SCREEN_ZOOM));
-		}
+		DrawWaterPass(0, nTileOffsetX);
 		// O------------------------------------------------------------------------------O
 
 		// O------------------------------------------------------------------------------O
@@ -642,18 +652,7 @@ public:
 		// O------------------------------------------------------------------------------O
 		// | Draw "foreground" water (transparent)                                        |
 		// O------------------------------------------------------------------------------O
-		for (int i = -1; i < (fCanvasWidth / GAME_TILE_WIDTH + 1); i++) { // Draw general water level:
-			int x = i + nTileOffsetX;
-			float fScreenX = ScreenCoordinateX(x * GAME_TILE_WIDTH);
-			float fScreenY = ScreenCoordinateY(Game.WaterLevel(x));
-			if (fScreenY < -GAME_TILE_HEIGHT) fScreenY = -GAME_TILE_HEIGHT;
-			olc::PixelGameEngine::DrawDecal(olc::vf2d(fScreenX, fScreenY), decWater[1].get(), olc::vf2d(SCREEN_ZOOM, SCREEN_ZOOM));
-		}
-		for (int i = 0; i < Game.WaterTiles.size(); i++) { // Draw specific water tiles throughout map:
-			float fScreenX = ScreenCoordinateX(Game.WaterTiles[i].GameX * GAME_TILE_WIDTH);
-			float fScreenY = ScreenCoordinateY(Game.WaterTiles[i].GameY * GAME_TILE_HEIGHT);
-			olc::PixelGameEngine::DrawDecal(olc::vf2d(fScreenX, fScreenY), decWaterSquare[1].get(), olc::vf2d(SCREEN_ZOOM, SCREEN_ZOOM));
-		}
+		DrawWaterPass(1, nTileOffsetX);
 		// O------------------------------------------------------------------------------O
 
 		// O------------------------------------------------------------------------------O
