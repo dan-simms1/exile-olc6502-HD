@@ -60,10 +60,20 @@ std::unique_ptr<olc::Sprite> sprWaterSquare[2];  std::unique_ptr<olc::Decal> dec
 bool bScreenFlash = false;
 uint8_t nEarthQuakeOffset = 0;
 
-olc::Key Keys[39] = { olc::Key::D /* D = Dummy Key */, olc::ESCAPE, olc::F1, olc::F2, olc::F3, olc::F4, olc::F5, olc::F6, olc::F7, olc::F8, olc::Key::D, olc::Key::D,
+// BBC-key → host-key mapping. Indexed by the game's `action_keys_pressed` offset
+// (0..38). olc::D is the "dummy / unused" slot for BBC keys with no host binding.
+constexpr size_t kNumInputKeys = 39;
+olc::Key Keys[kNumInputKeys] = { olc::Key::D /* D = Dummy Key */, olc::ESCAPE, olc::F1, olc::F2, olc::F3, olc::F4, olc::F5, olc::F6, olc::F7, olc::F8, olc::Key::D, olc::Key::D,
 			  olc::Key::G, olc::SPACE, olc::Key::I, olc::Key::D, olc::Key::D, olc::Key::D, olc::Key::D, olc::Key::K, olc::Key::O, olc::Key::OEM_4 /* '[' */,
 			  olc::CTRL, olc::TAB, olc::Key::Y, olc::Key::U, olc::Key::T, olc::Key::R, olc::PERIOD, olc::Key::M, olc::Key::COMMA,
 			  olc::Key::S, olc::Key::V, olc::Key::Q, olc::Key::W, olc::Key::P, olc::Key::P, olc::Key::L, olc::SHIFT };
+static_assert(sizeof(Keys) / sizeof(Keys[0]) == kNumInputKeys, "Keys[] size mismatch");
+
+// Game-loop cadence and safety cap.
+constexpr float    kGameTickSec        = 0.025f;     // 40 Hz — matches the BBC's 50 Hz minus overhead
+constexpr int      kCycleSafetyCap     = 1'000'000;  // instructions per frame before we bail to avoid hangs
+constexpr int      kWelcomeCountdown   = 10;         // frames (~0.25 s) before welcome sample plays
+constexpr int      kStallWarnMax       = 5;          // first N stall events get logged
 
 // For debugging overlay:
 bool bShowDebugGrid = false;
@@ -99,14 +109,14 @@ public:
 	std::unique_ptr<olc::Decal>  decBBCScreen;
 
 	float ScreenCoordinateX(float GameCoordinateX) {
-		float x = GameCoordinateX - fCanvasX - fCanvasOffsetX - (fScrollShiftX * fTimeSinceLastFrame / 0.025f);
+		float x = GameCoordinateX - fCanvasX - fCanvasOffsetX - (fScrollShiftX * fTimeSinceLastFrame / kGameTickSec);
 		x += nEarthQuakeOffset * 4; // Shift screen in event of earthquake
 		x = x * SCREEN_ZOOM;
 		return x;
 	}
 
 	float ScreenCoordinateY(float GameCoordinateY) {
-		float y = GameCoordinateY - fCanvasY - fCanvasOffsetY - (fScrollShiftY * fTimeSinceLastFrame / 0.025f);
+		float y = GameCoordinateY - fCanvasY - fCanvasOffsetY - (fScrollShiftY * fTimeSinceLastFrame / kGameTickSec);
 		y = y * SCREEN_ZOOM;
 		return y;
 	}
@@ -398,7 +408,7 @@ public:
 		// O------------------------------------------------------------------------------O
 		// | Process keys - Part 1 (capture key presses with every PGE frame)             |
 		// O------------------------------------------------------------------------------O
-		for (int nKey = 0; nKey < 39; nKey++) {
+		for (int nKey = 0; nKey < (int)kNumInputKeys; nKey++) {
 			if (GetKey(Keys[nKey]).bPressed || GetKey(Keys[nKey]).bHeld) {
 				if (Keys[nKey] != olc::D) { // Ignore D (dummy) key
 					Game.BBC.ram[gInputsBase + nKey] = Game.BBC.ram[gInputsBase + nKey] | 0x80;
@@ -413,7 +423,7 @@ public:
 		// + PROCESS GAME LOOP EVERY 0.025ms                                              +
 		// O++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++O
 		// O++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++O
-		if ((fTimeSinceLastFrame += fElapsedTime) > 0.025f) {
+		if ((fTimeSinceLastFrame += fElapsedTime) > kGameTickSec) {
 			fTimeSinceLastFrame = 0.0f;
 
 			// For debugging - time game loop:
@@ -435,14 +445,14 @@ public:
 			Game.BBC.cpu.pc = gStartGameLoop;
 			// Welcome sample fires once after a brief settle so initialisation
 			// audio doesn't compete. Counter survives across game-loop iterations.
-			static int nWelcomeFrameCountdown = 10;  // ~0.25s at 40 game ticks/s
+			static int nWelcomeFrameCountdown = kWelcomeCountdown;
 			if (nWelcomeFrameCountdown > 0 && --nWelcomeFrameCountdown == 0) {
 				if (gMode != 'A') Samples.Play(0);  // --standard = pure BBC, no voice sample
 			}
 
 			// Unified game-loop driver. Runs CPU instructions until PC cycles back to
 			// main_game_loop. Safety cap prevents infinite spin on unsupported OS calls.
-			int nCycleSafetyCap = 1'000'000;
+			int nCycleSafetyCap = kCycleSafetyCap;
 			uint16_t lastValidPC = Game.BBC.cpu.pc;
 			uint16_t prevValidPC = lastValidPC;
 			do {
@@ -473,7 +483,7 @@ public:
 				}
 				if (--nCycleSafetyCap <= 0) {
 					static int nStallWarn = 0;
-					if (nStallWarn++ < 5) {
+					if (nStallWarn++ < kStallWarnMax) {
 						std::cout << "game-loop stall, pc=$" << std::hex
 						          << Game.BBC.cpu.pc << " lastValidPC=$" << lastValidPC
 						          << " prevValidPC=$" << prevValidPC
@@ -491,7 +501,7 @@ public:
 			// O------------------------------------------------------------------------------O
 			// | Process keys - Part 2 (mark "held", or reset)                                |
 			// O------------------------------------------------------------------------------O
-			for (int nKey = 0; nKey < 39; nKey++) {
+			for (int nKey = 0; nKey < (int)kNumInputKeys; nKey++) {
 				if (GetKey(Keys[nKey]).bHeld) {
 					if (Keys[nKey] != olc::D) { // Ignore D (dummy) key
 						Game.BBC.ram[gInputsBase + nKey] = 0x40;
@@ -609,8 +619,8 @@ public:
 
 			if ((nObjectID == 0) || (nObjectID == Game.BBC.ram[0xdd])) {
 				// Offset the scroll shift for player (and objects held) to avoid judder
-				O.GameX += fScrollShiftX * fTimeSinceLastFrame / 0.025;
-				O.GameY += fScrollShiftY * fTimeSinceLastFrame / 0.025;
+				O.GameX += fScrollShiftX * fTimeSinceLastFrame / kGameTickSec;
+				O.GameY += fScrollShiftY * fTimeSinceLastFrame / kGameTickSec;
 			}
 
 			Game.DrawExileSprite(
